@@ -4,6 +4,7 @@
   functions = "netlify/functions"
 
 [build.environment]
+  NODE_ENV = "production"
   NODE_VERSION = "18"
   NPM_VERSION = "9"
 
