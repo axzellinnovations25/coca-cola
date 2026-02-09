@@ -1,0 +1,43 @@
+# Client (Next.js) specific
+client/.next/
+client/node_modules/
+client/.env
+client/.env.local
+client/.env.*.local
+client/.netlify
+
+# Mobile (React Native / Expo) specific
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+mobile/ios/
+mobile/android/
+
+# Server (Express.js) specific
+server/node_modules/
+server/.env
+server/generate-jwt-secret.js
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE specific
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+build/
+dist/
+*.log
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Local Netlify folder
+.netlify

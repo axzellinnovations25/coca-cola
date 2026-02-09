@@ -1,0 +1,17 @@
+# MotionRep - Sales Management System
+# Allow all crawlers to access the site
+User-agent: *
+Allow: /
+
+# Sitemap location (you can add this later if you create a sitemap)
+# Sitemap: https://yourdomain.com/sitemap.xml
+
+# Disallow admin and API routes from being indexed
+Disallow: /api/
+Disallow: /_next/
+Disallow: /admin/
+
+# Allow important pages
+Allow: /dashboard
+Allow: /login
+Allow: /register 

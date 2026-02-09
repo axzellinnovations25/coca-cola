@@ -1,0 +1,212 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Responsive utilities */
+@media (max-width: 640px) {
+  .mobile\:text-xs {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+  }
+  
+  .mobile\:text-sm {
+    font-size: 0.875rem !important;
+    line-height: 1.25rem !important;
+  }
+  
+  .mobile\:text-base {
+    font-size: 1rem !important;
+    line-height: 1.5rem !important;
+  }
+  
+  .mobile\:p-2 {
+    padding: 0.5rem !important;
+  }
+  
+  .mobile\:p-3 {
+    padding: 0.75rem !important;
+  }
+  
+  .mobile\:px-2 {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+  
+  .mobile\:py-2 {
+    padding-top: 0.5rem !important;
+    padding-bottom: 0.5rem !important;
+  }
+  
+  .mobile\:gap-2 {
+    gap: 0.5rem !important;
+  }
+  
+  .mobile\:rounded-lg {
+    border-radius: 0.5rem !important;
+  }
+}
+
+/* Touch-friendly button sizes for mobile */
+@media (max-width: 640px) {
+  button, 
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  input, 
+  select, 
+  textarea {
+    min-height: 44px;
+  }
+}
+
+/* Smooth transitions for sidebar */
+.sidebar-transition {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Mobile overlay */
+.mobile-overlay {
+  backdrop-filter: blur(4px);
+}
+
+/* Print styles for receipts */
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    background: white;
+  }
+  
+  .print\:hidden {
+    display: none !important;
+  }
+  
+  .print\:block {
+    display: block !important;
+  }
+  
+  .print\:bg-white {
+    background-color: white !important;
+  }
+  
+  .print\:shadow-none {
+    box-shadow: none !important;
+  }
+  
+  .print\:border-none {
+    border: none !important;
+  }
+  
+  .print\:rounded-none {
+    border-radius: 0 !important;
+  }
+  
+  .print\:p-4 {
+    padding: 1rem !important;
+  }
+  
+  .print\:mb-4 {
+    margin-bottom: 1rem !important;
+  }
+  
+  .print\:mb-2 {
+    margin-bottom: 0.5rem !important;
+  }
+  
+  .print\:mt-1 {
+    margin-top: 0.25rem !important;
+  }
+  
+  .print\:pt-2 {
+    padding-top: 0.5rem !important;
+  }
+  
+  .print\:pb-1 {
+    padding-bottom: 0.25rem !important;
+  }
+  
+  .print\:space-y-2 > * + * {
+    margin-top: 0.5rem !important;
+  }
+  
+  .print\:text-lg {
+    font-size: 1.125rem !important;
+    line-height: 1.75rem !important;
+  }
+  
+  .print\:text-base {
+    font-size: 1rem !important;
+    line-height: 1.5rem !important;
+  }
+  
+  .print\:text-sm {
+    font-size: 0.875rem !important;
+    line-height: 1.25rem !important;
+  }
+  
+  .print\:text-xs {
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+  }
+  
+  .print\:bg-green-50 {
+    background-color: #f0fdf4 !important;
+  }
+  
+  .print\:border-green-200 {
+    border-color: #bbf7d0 !important;
+  }
+  
+  .print\:text-green-700 {
+    color: #15803d !important;
+  }
+  
+  .print\:relative {
+    position: relative !important;
+  }
+  
+  .print\:z-auto {
+    z-index: auto !important;
+  }
+}
