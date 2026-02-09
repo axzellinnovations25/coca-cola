@@ -12,7 +12,19 @@ import OrderLogTable from './admin/OrderLogTable';
 import PaymentLogTable from './admin/PaymentLogTable';
 import SalesQuantityLogTable from './admin/SalesQuantityLogTable';
 
-const sidebarItems = [
+interface SidebarChild {
+  label: string;
+  icon: React.ReactNode;
+}
+
+interface SidebarItem {
+  label: string;
+  icon: React.ReactNode;
+  isParent?: boolean;
+  children?: SidebarChild[];
+}
+
+const sidebarItems: SidebarItem[] = [
   { 
     label: 'Order Management', 
     icon: (

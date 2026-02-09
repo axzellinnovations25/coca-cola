@@ -72,7 +72,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
   const [newProductId, setNewProductId] = useState('');
   const [newProductQty, setNewProductQty] = useState(1);
   const ORDERS_PER_PAGE = 10;
-  const parseOrderDate = (value?: string) => {
+  const parseOrderDate = (value?: string | Date | null) => {
     if (!value) return null;
     if (value instanceof Date) return value;
     if (typeof value !== 'string') {
