@@ -12,6 +12,13 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "extra": {
+      "apiBaseUrlProd": "https://api.sbdistribution.store",
+      "apiBaseUrlDev": "http://192.168.1.20:3000",
+      "eas": {
+        "projectId": "b2311f82-c175-4db0-a72d-1015e38793e2"
+      }
+    },
     "ios": {
       "supportsTablet": true
     },
@@ -21,7 +28,8 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.thushanth.motionreprep"
     },
     "web": {
       "favicon": "./assets/favicon.png"

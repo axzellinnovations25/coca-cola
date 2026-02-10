@@ -1,7 +1,19 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
+
+type ExpoExtra = {
+  apiBaseUrlProd?: string;
+  apiBaseUrlDev?: string;
+};
+
+const extra = (Constants.expoConfig?.extra ?? {}) as ExpoExtra;
+const envOverride = process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '');
 
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, '') || 'http://3.81.158.4:3001';
+  envOverride ||
+  (__DEV__
+    ? extra.apiBaseUrlDev ?? 'http://localhost:3000'
+    : extra.apiBaseUrlProd ?? 'https://api.sbdistribution.store');
 
 type StoredItem<T> = {
   value: T;
