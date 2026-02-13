@@ -2,7 +2,10 @@ import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
+  NativeModules,
+  PermissionsAndroid,
   Platform,
   RefreshControl,
   StyleSheet,
@@ -10,8 +13,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
+import ThermalPrinterModule from 'react-native-thermal-printer';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
@@ -42,6 +47,37 @@ interface RecentCollection {
   amount: number;
   payment_date: string;
 }
+
+interface BluetoothPrinterDevice {
+  deviceName: string;
+  macAddress: string;
+}
+
+const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
+const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
+const DEFAULT_BLUETOOTH_PRINTER_PROFILE = {
+  printerDpi: 203,
+  printerWidthMM: 72,
+  printerNbrCharactersPerLine: 42,
+  autoCut: false,
+  openCashbox: false,
+  mmFeedPaper: 20,
+} as const;
+const NARROW_58MM_PRINTER_PROFILE = {
+  printerDpi: 203,
+  printerWidthMM: 58,
+  printerNbrCharactersPerLine: 32,
+  autoCut: false,
+  openCashbox: false,
+  mmFeedPaper: 20,
+} as const;
+const isLikelyCpclPrinter = (deviceName?: string | null) => {
+  const normalized = (deviceName || '').toLowerCase();
+  return normalized.includes('dbl') || normalized.includes('4b-');
+};
+const escapeCpclText = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, "'");
+const hasNativeBluetoothRawPrint = () =>
+  typeof (NativeModules as any)?.ThermalPrinterModule?.printBluetoothRaw === 'function';
 
 const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-LK', {
@@ -133,6 +169,149 @@ export default function DashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [printingTest, setPrintingTest] = useState(false);
+  const [printTestStatus, setPrintTestStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
+    type: null,
+    message: '',
+  });
+
+  const getBluetoothPrinterProfile = (deviceName?: string | null) => {
+    const normalized = (deviceName || '').toLowerCase();
+    if (
+      normalized.includes('58') ||
+      normalized.includes('2 inch') ||
+      normalized.includes('2-inch') ||
+      normalized.includes('mini')
+    ) {
+      return NARROW_58MM_PRINTER_PROFILE;
+    }
+    return DEFAULT_BLUETOOTH_PRINTER_PROFILE;
+  };
+
+  const requestBluetoothPermissions = async () => {
+    if (Platform.OS !== 'android') {
+      throw new Error('Bluetooth printing is supported on Android only in this app.');
+    }
+    if (Platform.Version >= 31) {
+      const results = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      ]);
+      const connectGranted =
+        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+      const scanGranted =
+        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+      return connectGranted && scanGranted;
+    }
+    if (Platform.Version >= 23) {
+      const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+      return result === PermissionsAndroid.RESULTS.GRANTED;
+    }
+    return true;
+  };
+
+  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string) => {
+    let timeoutRef: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutRef = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutRef) clearTimeout(timeoutRef);
+    }
+  };
+
+  const loadPairedPrinters = async () => {
+    if (
+      !ThermalPrinterModule ||
+      typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function' ||
+      typeof ThermalPrinterModule.printBluetooth !== 'function'
+    ) {
+      throw new Error('Bluetooth printer module is unavailable. Use an Android dev/EAS build (not Expo Go).');
+    }
+    const granted = await requestBluetoothPermissions();
+    if (!granted) {
+      throw new Error('Bluetooth permission denied.');
+    }
+    return (
+      (await withTimeout(
+        ThermalPrinterModule.getBluetoothDeviceList(),
+        BLUETOOTH_SCAN_TIMEOUT_MS,
+        'Bluetooth scan timed out. Turn on Bluetooth, pair printer in phone settings, then try again.',
+      )) || []
+    );
+  };
+
+  const buildDashboardTestPayload = (lineWidth: number) => {
+    const safeWidth = Math.max(16, Math.min(48, lineWidth));
+    const divider = '-'.repeat(safeWidth);
+    return [
+      '[C]DASHBOARD TEST',
+      `[C]${new Date().toLocaleString()}`,
+      `[L]${divider}`,
+      '[L]TEST OK',
+      '[L]',
+      '[L]',
+    ].join('\n') + '\n';
+  };
+
+  const buildDashboardCpclTestPayload = () => {
+    const lines = ['DASHBOARD TEST', new Date().toLocaleString(), 'TEST OK', '', ''];
+    const startY = 24;
+    const lineHeight = 30;
+    const x = 12;
+    const height = 280;
+    const cpclLines = lines.map(
+      (line, index) => `TEXT 0 0 ${x} ${startY + index * lineHeight} "${escapeCpclText(line)}"`,
+    );
+    return `! 0 200 200 ${height} 1\r\n${cpclLines.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
+  };
+
+  const handleDashboardTestPrint = async () => {
+    if (printingTest) return;
+    try {
+      setPrintingTest(true);
+      setPrintTestStatus({ type: null, message: '' });
+      const devices = await loadPairedPrinters();
+      if (!devices.length) {
+        throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
+      }
+      const savedMac = await AsyncStorage.getItem(PRINTER_MAC_KEY);
+      const selectedPrinter =
+        (savedMac ? devices.find((printer: BluetoothPrinterDevice) => printer.macAddress === savedMac) : null) ||
+        devices[0];
+      if (!selectedPrinter?.macAddress) {
+        throw new Error('No usable Bluetooth printer found.');
+      }
+      const profile = getBluetoothPrinterProfile(selectedPrinter.deviceName);
+      const useCpcl = isLikelyCpclPrinter(selectedPrinter.deviceName) && hasNativeBluetoothRawPrint();
+      if (useCpcl) {
+        const cpclPayload = buildDashboardCpclTestPayload();
+        await (ThermalPrinterModule as any).printBluetoothRaw({
+          macAddress: selectedPrinter.macAddress,
+          payload: cpclPayload,
+        });
+      } else {
+        const payload = buildDashboardTestPayload(profile.printerNbrCharactersPerLine);
+        await ThermalPrinterModule.printBluetooth({
+          macAddress: selectedPrinter.macAddress,
+          payload,
+          ...profile,
+        });
+      }
+      setPrintTestStatus({
+        type: 'success',
+        message: `Test command sent to ${selectedPrinter.deviceName || selectedPrinter.macAddress}${useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
+      });
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to print test.';
+      setPrintTestStatus({ type: 'error', message: errorMessage });
+      Alert.alert('Print Test Failed', errorMessage);
+    } finally {
+      setPrintingTest(false);
+    }
+  };
 
   const fetchDashboardData = useCallback(async (isRefresh = false) => {
     try {
@@ -322,6 +501,31 @@ export default function DashboardScreen() {
             <Text style={styles.statusValue}>{stats?.rejected_orders || 0}</Text>
           </View>
         </View>
+      </AnimatedCard>
+
+      {/* Printer Test Section */}
+      <AnimatedCard delay={325} style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Printer</Text>
+          <Text style={styles.sectionCaption}>Quick check</Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.printTestButton, printingTest && styles.printTestButtonDisabled]}
+          onPress={handleDashboardTestPrint}
+          disabled={printingTest}
+        >
+          <Text style={styles.printTestButtonText}>{printingTest ? 'Sending...' : 'Print Test'}</Text>
+        </TouchableOpacity>
+        {printTestStatus.type ? (
+          <Text
+            style={[
+              styles.printTestStatusText,
+              printTestStatus.type === 'success' ? styles.printTestStatusSuccess : styles.printTestStatusError,
+            ]}
+          >
+            {printTestStatus.message}
+          </Text>
+        ) : null}
       </AnimatedCard>
 
       {/* Recent Orders Section */}
@@ -683,6 +887,32 @@ const makeStyles = (colors: ThemeColors) =>
     fontSize: 15,
     textAlign: 'center',
     paddingVertical: 16,
+  },
+  printTestButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+  },
+  printTestButtonDisabled: {
+    opacity: 0.5,
+  },
+  printTestButtonText: {
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  printTestStatusText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  printTestStatusSuccess: {
+    color: colors.success,
+  },
+  printTestStatusError: {
+    color: colors.danger,
   },
 });
 

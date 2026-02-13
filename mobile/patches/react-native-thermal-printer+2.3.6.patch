@@ -1,0 +1,180 @@
+diff --git a/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java b/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
+index 335a6d6..5f02837 100644
+--- a/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
++++ b/node_modules/react-native-thermal-printer/android/src/main/java/com/reactnativethermalprinter/ThermalPrinterModule.java
+@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
+ 
+ import android.bluetooth.BluetoothAdapter;
+ import android.bluetooth.BluetoothDevice;
++import android.bluetooth.BluetoothSocket;
+ import android.text.TextUtils;
+ 
+ import com.dantsu.escposprinter.connection.bluetooth.BluetoothConnection;
+@@ -44,6 +45,9 @@ import org.json.JSONObject;
+ import java.util.ArrayList;
+ import java.util.Iterator;
+ import java.util.Set;
++import java.util.UUID;
++import java.io.OutputStream;
++import java.nio.charset.StandardCharsets;
+ 
+ @ReactModule(name = ThermalPrinterModule.NAME)
+ public class ThermalPrinterModule extends ReactContextBaseJavaModule {
+@@ -115,6 +119,64 @@ public class ThermalPrinterModule extends ReactContextBaseJavaModule {
+     }
+   }
+ 
++  @ReactMethod
++  public void printBluetoothRaw(String macAddress, String payload, Promise promise) {
++    this.jsPromise = promise;
++    if (TextUtils.isEmpty(payload)) {
++      this.jsPromise.reject("Invalid payload", "Payload is required");
++      return;
++    }
++    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(getCurrentActivity(), Manifest.permission.BLUETOOTH) != PackageManager.PERMISSION_GRANTED) {
++      ActivityCompat.requestPermissions(getCurrentActivity(), new String[]{Manifest.permission.BLUETOOTH}, 1);
++    } else if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(getCurrentActivity(), Manifest.permission.BLUETOOTH_ADMIN) != PackageManager.PERMISSION_GRANTED) {
++      ActivityCompat.requestPermissions(getCurrentActivity(), new String[]{Manifest.permission.BLUETOOTH_ADMIN}, 1);
++    } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(getCurrentActivity(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
++      ActivityCompat.requestPermissions(getCurrentActivity(), new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 1);
++    } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(getCurrentActivity(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
++      ActivityCompat.requestPermissions(getCurrentActivity(), new String[]{Manifest.permission.BLUETOOTH_SCAN}, 1);
++    } else {
++      BluetoothSocket socket = null;
++      OutputStream outputStream = null;
++      try {
++        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
++        if (adapter == null) {
++          this.jsPromise.reject("Connection Error", "Bluetooth adapter is unavailable");
++          return;
++        }
++        BluetoothDevice device = null;
++        if (!TextUtils.isEmpty(macAddress)) {
++          device = adapter.getRemoteDevice(macAddress);
++        } else {
++          Set<BluetoothDevice> pairedDevices = adapter.getBondedDevices();
++          if (pairedDevices != null && !pairedDevices.isEmpty()) {
++            device = pairedDevices.iterator().next();
++          }
++        }
++        if (device == null) {
++          this.jsPromise.reject("Connection Error", "Bluetooth Device Not Found");
++          return;
++        }
++        adapter.cancelDiscovery();
++        UUID sppUuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
++        socket = device.createRfcommSocketToServiceRecord(sppUuid);
++        socket.connect();
++        outputStream = socket.getOutputStream();
++        outputStream.write(payload.getBytes(StandardCharsets.UTF_8));
++        outputStream.flush();
++        this.jsPromise.resolve(true);
++      } catch (Exception e) {
++        this.jsPromise.reject("Connection Error", e.getMessage());
++      } finally {
++        try {
++          if (outputStream != null) outputStream.close();
++        } catch (Exception ignored) {}
++        try {
++          if (socket != null) socket.close();
++        } catch (Exception ignored) {}
++      }
++    }
++  }
++
+   @ReactMethod
+   public void getBluetoothDeviceList(Promise promise) {
+     this.jsPromise = promise;
+diff --git a/node_modules/react-native-thermal-printer/lib/commonjs/index.js b/node_modules/react-native-thermal-printer/lib/commonjs/index.js
+index feaba24..8bd79d7 100644
+--- a/node_modules/react-native-thermal-printer/lib/commonjs/index.js
++++ b/node_modules/react-native-thermal-printer/lib/commonjs/index.js
+@@ -52,12 +52,20 @@ const printBluetooth = args => {
+   } = getConfig(args);
+   return ThermalPrinterModule.printBluetooth(macAddress, payload, autoCut, openCashbox, mmFeedPaper, printerDpi, printerWidthMM, printerNbrCharactersPerLine);
+ };
++const printBluetoothRaw = args => {
++  const {
++    macAddress,
++    payload
++  } = args;
++  return ThermalPrinterModule.printBluetoothRaw(macAddress, payload);
++};
+ const getBluetoothDeviceList = () => {
+   return ThermalPrinterModule.getBluetoothDeviceList();
+ };
+ var _default = {
+   printTcp,
+   printBluetooth,
++  printBluetoothRaw,
+   defaultConfig,
+   getBluetoothDeviceList
+ };
+diff --git a/node_modules/react-native-thermal-printer/lib/module/index.js b/node_modules/react-native-thermal-printer/lib/module/index.js
+index 2369b38..0b2a1dd 100644
+--- a/node_modules/react-native-thermal-printer/lib/module/index.js
++++ b/node_modules/react-native-thermal-printer/lib/module/index.js
+@@ -46,12 +46,20 @@ const printBluetooth = args => {
+   } = getConfig(args);
+   return ThermalPrinterModule.printBluetooth(macAddress, payload, autoCut, openCashbox, mmFeedPaper, printerDpi, printerWidthMM, printerNbrCharactersPerLine);
+ };
++const printBluetoothRaw = args => {
++  const {
++    macAddress,
++    payload
++  } = args;
++  return ThermalPrinterModule.printBluetoothRaw(macAddress, payload);
++};
+ const getBluetoothDeviceList = () => {
+   return ThermalPrinterModule.getBluetoothDeviceList();
+ };
+ export default {
+   printTcp,
+   printBluetooth,
++  printBluetoothRaw,
+   defaultConfig,
+   getBluetoothDeviceList
+ };
+diff --git a/node_modules/react-native-thermal-printer/lib/typescript/index.d.ts b/node_modules/react-native-thermal-printer/lib/typescript/index.d.ts
+index 50cebb9..40ad5df 100644
+--- a/node_modules/react-native-thermal-printer/lib/typescript/index.d.ts
++++ b/node_modules/react-native-thermal-printer/lib/typescript/index.d.ts
+@@ -22,6 +22,7 @@ interface PrintBluetoothInterface extends PrinterInterface {
+ declare const _default: {
+     printTcp: (args: Partial<PrintTcpInterface> & Pick<PrinterInterface, "payload">) => Promise<void>;
+     printBluetooth: (args: Partial<PrintBluetoothInterface> & Pick<PrinterInterface, "payload">) => Promise<void>;
++    printBluetoothRaw: (args: Pick<PrintBluetoothInterface, "macAddress"> & Pick<PrinterInterface, "payload">) => Promise<void>;
+     defaultConfig: PrintTcpInterface & PrintBluetoothInterface;
+     getBluetoothDeviceList: () => Promise<BluetoothPrinter[]>;
+ };
+diff --git a/node_modules/react-native-thermal-printer/src/index.tsx b/node_modules/react-native-thermal-printer/src/index.tsx
+index 18f60c2..72727c0 100644
+--- a/node_modules/react-native-thermal-printer/src/index.tsx
++++ b/node_modules/react-native-thermal-printer/src/index.tsx
+@@ -29,6 +29,7 @@ type NativeModuleType = typeof NativeModules & {
+       printerWidthMM: number,
+       printerNbrCharactersPerLine: number
+     ): Promise<void>;
++    printBluetoothRaw(macAddress: string, payload: string): Promise<void>;
+     getBluetoothDeviceList(): Promise<BluetoothPrinter[]>;
+   };
+ };
+@@ -136,9 +137,18 @@ const getBluetoothDeviceList = (): Promise<BluetoothPrinter[]> => {
+   return ThermalPrinterModule.getBluetoothDeviceList();
+ };
+ 
++const printBluetoothRaw = ({
++  macAddress,
++  payload,
++}: Pick<PrintBluetoothInterface, 'macAddress'> &
++  Pick<PrinterInterface, 'payload'>): Promise<void> => {
++  return ThermalPrinterModule.printBluetoothRaw(macAddress, payload);
++};
++
+ export default {
+   printTcp,
+   printBluetooth,
++  printBluetoothRaw,
+   defaultConfig,
+   getBluetoothDeviceList,
+ };

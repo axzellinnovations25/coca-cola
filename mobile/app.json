@@ -2,6 +2,7 @@
   "expo": {
     "name": "MotionRep Rep",
     "slug": "motionrep-rep",
+    "owner": "thush24",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,13 +17,20 @@
       "apiBaseUrlProd": "https://api.sbdistribution.store",
       "apiBaseUrlDev": "http://192.168.1.20:3000",
       "eas": {
-        "projectId": "b2311f82-c175-4db0-a72d-1015e38793e2"
+        "projectId": "7b2133d6-8bc6-4915-8907-3e619736037b"
       }
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"

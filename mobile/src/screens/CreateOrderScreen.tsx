@@ -1,9 +1,14 @@
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
+  NativeModules,
+  PermissionsAndroid,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,6 +16,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import ThermalPrinterModule from 'react-native-thermal-printer';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import DismissKeyboard from '../components/DismissKeyboard';
@@ -40,8 +47,96 @@ interface OrderItem {
   free_quantity: number;
 }
 
+interface BluetoothPrinterDevice {
+  deviceName: string;
+  macAddress: string;
+}
+
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
+const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
+const RECEIPT_LINE_WIDTH = 32;
+const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
+const DEFAULT_BLUETOOTH_PRINTER_PROFILE = {
+  printerDpi: 203,
+  printerWidthMM: 72,
+  printerNbrCharactersPerLine: 42,
+  autoCut: false,
+  openCashbox: false,
+  mmFeedPaper: 20,
+} as const;
+const DBL_BLUETOOTH_PRINTER_PROFILE = {
+  printerDpi: 203,
+  printerWidthMM: 72,
+  printerNbrCharactersPerLine: 42,
+  autoCut: false,
+  openCashbox: false,
+  mmFeedPaper: 20,
+} as const;
+const NARROW_58MM_PRINTER_PROFILE = {
+  printerDpi: 203,
+  printerWidthMM: 58,
+  printerNbrCharactersPerLine: 32,
+  autoCut: false,
+  openCashbox: false,
+  mmFeedPaper: 20,
+} as const;
+
+const getBluetoothPrinterProfile = (deviceName?: string | null) => {
+  const normalized = (deviceName || '').toLowerCase();
+  if (
+    normalized.includes('58') ||
+    normalized.includes('2 inch') ||
+    normalized.includes('2-inch') ||
+    normalized.includes('mini')
+  ) {
+    return NARROW_58MM_PRINTER_PROFILE;
+  }
+  if (normalized.includes('dbl')) {
+    return DBL_BLUETOOTH_PRINTER_PROFILE;
+  }
+  return DEFAULT_BLUETOOTH_PRINTER_PROFILE;
+};
+
+const isLikelyCpclPrinter = (deviceName?: string | null) => {
+  const normalized = (deviceName || '').toLowerCase();
+  return normalized.includes('dbl') || normalized.includes('4b-');
+};
+
+const escapeCpclText = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, "'");
+
+const joinLine = (left: string, right: string, width: number) => {
+  const safeWidth = Math.max(20, width);
+  const leftPart = left.slice(0, safeWidth);
+  const rightPart = right.slice(0, safeWidth);
+  const spaces = Math.max(1, safeWidth - leftPart.length - rightPart.length);
+  return `${leftPart}${' '.repeat(spaces)}${rightPart}`;
+};
+const padRight = (value: string, width: number) =>
+  value.length >= width ? value.slice(0, width) : `${value}${' '.repeat(width - value.length)}`;
+const padLeft = (value: string, width: number) =>
+  value.length >= width ? value.slice(0, width) : `${' '.repeat(width - value.length)}${value}`;
+
+const hasNativeBluetoothRawPrint = () =>
+  typeof (NativeModules as any)?.ThermalPrinterModule?.printBluetoothRaw === 'function';
+const RECEIPT_COMPANY_NAME = 'S.B Distribution';
+const pickDefaultPrinter = (devices: BluetoothPrinterDevice[]) => {
+  if (!devices.length) return null;
+  const preferred = devices.find((printer) => isLikelyCpclPrinter(printer.deviceName));
+  return preferred || devices[0];
+};
+const CPCL_RENDER_LINE_WIDTH = 16;
+const CPCL_LEFT_MARGIN = 0;
+const CPCL_FONT = 0;
+const CPCL_MAG_X = 2;
+const CPCL_MAG_Y = 2;
+const CPCL_BASE_LINE_HEIGHT = 30;
+const sanitizeCpclLine = (value: string) =>
+  value
+    .replace(/["']/g, '')
+    .replace(/~/g, '')
+    .replace(/^\.+/, '')
+    .replace(/[^\x20-\x7E]/g, ' ');
 
 const parseDate = (value: string | number | Date | null | undefined) => {
   if (value === null || value === undefined || value === '') return null;
@@ -113,6 +208,7 @@ const parseDate = (value: string | number | Date | null | undefined) => {
 
 export default function CreateOrderScreen() {
   const navigation = useNavigation();
+  const bottomTabBarHeight = useBottomTabBarHeight();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [shops, setShops] = useState<Shop[]>([]);
@@ -133,7 +229,12 @@ export default function CreateOrderScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [showPrinterPicker, setShowPrinterPicker] = useState(false);
   const [sendingSMS, setSendingSMS] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
+  const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
+  const [selectedPrinterMac, setSelectedPrinterMac] = useState('');
   const [messageStatus, setMessageStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
     message: '',
@@ -174,6 +275,13 @@ export default function CreateOrderScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchData();
+      AsyncStorage.getItem(PRINTER_MAC_KEY)
+        .then((savedMac) => {
+          if (savedMac) {
+            setSelectedPrinterMac(savedMac);
+          }
+        })
+        .catch(() => {});
     }, [fetchData]),
   );
 
@@ -318,6 +426,267 @@ export default function CreateOrderScreen() {
     }
   };
 
+  const trimCell = (value: string, maxLen: number) => {
+    if (value.length <= maxLen) return value;
+    return value.slice(0, Math.max(0, maxLen));
+  };
+
+  const buildPrintableReceiptLines = (lineWidth: number = RECEIPT_LINE_WIDTH) => {
+    const shopName = receipt?.shop?.name || 'N/A';
+    const shopPhone = receipt?.shop?.phone || '';
+    const itemCount = (receipt?.items || []).length;
+
+    const totalWidth = Math.max(24, lineWidth);
+    const itemWidth = totalWidth >= 42 ? 20 : 14;
+    const qtyWidth = 4;
+    const unitWidth = 6;
+    const totalWidthCol = totalWidth - itemWidth - qtyWidth - unitWidth;
+    const separator = '-'.repeat(totalWidth);
+    const strongSeparator = '='.repeat(totalWidth);
+
+    const lines: string[] = [
+      RECEIPT_COMPANY_NAME,
+      'Sales Order Receipt',
+      strongSeparator,
+      joinLine('Shop', shopName, totalWidth),
+    ];
+    if (shopPhone) lines.push(joinLine('Phone', shopPhone, totalWidth));
+    lines.push(joinLine('Date', receiptDateInfo.dateText, totalWidth));
+    lines.push(joinLine('Time', receiptDateInfo.timeText, totalWidth));
+    lines.push(joinLine('Items', String(itemCount), totalWidth));
+    lines.push(strongSeparator);
+    lines.push('ITEM DETAILS');
+    lines.push(separator);
+    if (totalWidth >= 32) {
+      lines.push(
+        `${padRight('Item', itemWidth)}${padLeft('Qty', qtyWidth)}${padLeft('Unit', unitWidth)}${padLeft('Total', totalWidthCol)}`,
+      );
+      lines.push(separator);
+    } else {
+      lines.push(joinLine('Item', 'Total', totalWidth));
+      lines.push(separator);
+    }
+    (receipt?.items || []).forEach((item: any, index: number) => {
+      const qty = Number(item.quantity || 0);
+      const freeQty = Number(item.free_quantity || 0);
+      const unit = Number(item.unit_price || 0);
+      const total = (unit * qty).toFixed(2);
+      const itemName = `${index + 1}. ${item.name || 'Item'}${freeQty > 0 ? ` (+${freeQty}F)` : ''}`;
+      if (totalWidth >= 32) {
+        lines.push(
+          `${padRight(trimCell(itemName, itemWidth), itemWidth)}${padLeft(String(qty), qtyWidth)}${padLeft(unit.toFixed(2), unitWidth)}${padLeft(total, totalWidthCol)}`,
+        );
+        if (freeQty > 0) {
+          lines.push(joinLine('  Free Qty', String(freeQty), totalWidth));
+        }
+      } else {
+        lines.push(trimCell(itemName, totalWidth));
+        lines.push(joinLine(`${qty} x ${unit.toFixed(2)}`, total, totalWidth));
+        if (freeQty > 0) {
+          lines.push(joinLine('Free Qty', String(freeQty), totalWidth));
+        }
+      }
+    });
+    lines.push(strongSeparator);
+    lines.push(joinLine('TOTAL AMOUNT (LKR)', receiptTotal.toFixed(2), totalWidth));
+    lines.push(strongSeparator);
+    lines.push('');
+    return lines;
+  };
+
+  const buildReceiptPayload = (lineWidth: number = RECEIPT_LINE_WIDTH) => {
+    const lines = buildPrintableReceiptLines(lineWidth);
+    const escposLines = [
+      `[C]<b>${RECEIPT_COMPANY_NAME}</b>`,
+      '[C]Sales Order Receipt',
+      ...lines.slice(2).map((line) => `[L]${line}`),
+    ];
+    return `${escposLines.join('\n')}\n`;
+  };
+
+  const buildCpclReceiptPayload = (lineWidth: number = RECEIPT_LINE_WIDTH) => {
+    const lines = buildPrintableReceiptLines(lineWidth);
+
+    const startY = 24;
+    const lineHeight = CPCL_BASE_LINE_HEIGHT * CPCL_MAG_Y + 8;
+    const x = CPCL_LEFT_MARGIN;
+    const height = Math.max(260, startY + lines.length * lineHeight + 80);
+    const cpclLines = lines
+      .map((line, index) => ({
+        y: startY + index * lineHeight,
+        text: sanitizeCpclLine(escapeCpclText(line)),
+      }))
+      .filter((row) => row.text.trim().length > 0)
+      .map((row) => `TEXT ${CPCL_FONT} 0 ${x} ${row.y} ${row.text}`);
+    return `! 0 200 200 ${height} 1\r\nSETMAG ${CPCL_MAG_X} ${CPCL_MAG_Y}\r\n${cpclLines.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
+  };
+
+
+  const requestBluetoothPermissions = async () => {
+    if (Platform.OS !== 'android') {
+      throw new Error('Bluetooth printing is supported on Android only in this app.');
+    }
+    if (Platform.Version >= 31) {
+      const results = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      ]);
+      const connectGranted = results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+      const scanGranted = results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+      return connectGranted && scanGranted;
+    }
+    if (Platform.Version >= 23) {
+      const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+      return result === PermissionsAndroid.RESULTS.GRANTED;
+    }
+    return true;
+  };
+
+  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, timeoutMessage: string) => {
+    let timeoutRef: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      timeoutRef = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+    });
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutRef) clearTimeout(timeoutRef);
+    }
+  };
+
+  const loadPairedPrinters = async () => {
+    if (
+      !ThermalPrinterModule ||
+      typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function' ||
+      typeof ThermalPrinterModule.printBluetooth !== 'function'
+    ) {
+      throw new Error('Bluetooth printer module is unavailable. Use an Android dev/EAS build (not Expo Go).');
+    }
+    const granted = await requestBluetoothPermissions();
+    if (!granted) {
+      throw new Error('Bluetooth permission denied.');
+    }
+    const devices =
+      (await withTimeout(
+        ThermalPrinterModule.getBluetoothDeviceList(),
+        BLUETOOTH_SCAN_TIMEOUT_MS,
+        'Bluetooth scan timed out. Turn on Bluetooth, pair printer in phone settings, then try again.',
+      )) || [];
+    setPairedPrinters(devices);
+    return devices;
+  };
+
+  const openPrinterPicker = async () => {
+    setShowPrinterPicker(true);
+    await refreshPairedPrinters();
+  };
+
+  const refreshPairedPrinters = async () => {
+    try {
+      setLoadingPrinters(true);
+      const devices = await loadPairedPrinters();
+      if (!devices.length) {
+        setMessageStatus({
+          type: 'error',
+          message: 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+        });
+      }
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to load Bluetooth printers.';
+      setMessageStatus({ type: 'error', message: errorMessage });
+      Alert.alert('Printer', errorMessage);
+    } finally {
+      setLoadingPrinters(false);
+    }
+  };
+
+  const choosePrinter = async (printer: BluetoothPrinterDevice) => {
+    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    setSelectedPrinterMac(printer.macAddress);
+    setShowPrinterPicker(false);
+    setMessageStatus({
+      type: 'success',
+      message: `Printer selected: ${printer.deviceName || printer.macAddress}`,
+    });
+  };
+
+  const resolveBluetoothMacAddress = async (devices: BluetoothPrinterDevice[]) => {
+    if (!devices.length) return null;
+    const selectedPrinter = selectedPrinterMac
+      ? devices.find((printer) => printer.macAddress === selectedPrinterMac)
+      : null;
+    if (selectedPrinter?.macAddress) {
+      return selectedPrinter.macAddress;
+    }
+    const savedMac = await AsyncStorage.getItem(PRINTER_MAC_KEY);
+    const savedPrinter = savedMac ? devices.find((printer) => printer.macAddress === savedMac) : null;
+    if (savedPrinter?.macAddress) {
+      setSelectedPrinterMac(savedPrinter.macAddress);
+      return savedPrinter.macAddress;
+    }
+    const fallbackPrinter = pickDefaultPrinter(devices);
+    if (fallbackPrinter?.macAddress) {
+      await AsyncStorage.setItem(PRINTER_MAC_KEY, fallbackPrinter.macAddress);
+      setSelectedPrinterMac(fallbackPrinter.macAddress);
+      return fallbackPrinter.macAddress;
+    }
+    return null;
+  };
+
+  const handlePrintReceipt = async () => {
+    if (printing) return;
+    if (!receipt) {
+      setMessageStatus({ type: 'error', message: 'No receipt available to print.' });
+      return;
+    }
+    try {
+      setPrinting(true);
+      setMessageStatus({ type: null, message: '' });
+      const devices = await loadPairedPrinters();
+      if (!devices.length) {
+        throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
+      }
+      const macAddress = await resolveBluetoothMacAddress(devices);
+      if (!macAddress) {
+        setShowPrinterPicker(true);
+        refreshPairedPrinters();
+        setMessageStatus({
+          type: 'error',
+          message: 'Choose a Bluetooth printer first, then tap Print Receipt again.',
+        });
+        return;
+      }
+      const selectedDevice = devices.find((printer) => printer.macAddress === macAddress) || null;
+      const printerProfile = getBluetoothPrinterProfile(selectedDevice?.deviceName);
+      const useCpcl = isLikelyCpclPrinter(selectedDevice?.deviceName) && hasNativeBluetoothRawPrint();
+      if (useCpcl) {
+        const cpclPayload = buildCpclReceiptPayload(Math.min(CPCL_RENDER_LINE_WIDTH, printerProfile.printerNbrCharactersPerLine));
+        await (ThermalPrinterModule as any).printBluetoothRaw({
+          macAddress,
+          payload: cpclPayload,
+        });
+      } else {
+        const payload = buildReceiptPayload(printerProfile.printerNbrCharactersPerLine);
+        await ThermalPrinterModule.printBluetooth({
+          macAddress,
+          payload,
+          ...printerProfile,
+        });
+      }
+      setMessageStatus({
+        type: 'success',
+        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
+      });
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Failed to print receipt.';
+      setMessageStatus({ type: 'error', message: errorMessage });
+      Alert.alert('Print Failed', errorMessage);
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -330,7 +699,8 @@ export default function CreateOrderScreen() {
   return (
     <DismissKeyboard>
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[styles.container, { paddingBottom: bottomTabBarHeight + 16 }]}
+        scrollIndicatorInsets={{ bottom: bottomTabBarHeight }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
@@ -494,130 +864,200 @@ export default function CreateOrderScreen() {
         <Modal visible={showReceipt} transparent animationType="slide" onRequestClose={() => setShowReceipt(false)}>
           <View style={styles.modalBackdrop}>
             <View style={styles.receiptCard}>
-              <View style={styles.receiptHeader}>
-                <Text style={styles.receiptCompany}>S.B Distribution</Text>
-                <Text style={styles.receiptDocTitle}>Sales Order Receipt</Text>
-                <View style={styles.receiptBadge}>
-                  <Text style={styles.receiptBadgeText}>Pending Approval</Text>
+              <ScrollView
+                style={styles.receiptScroll}
+                contentContainerStyle={styles.receiptScrollContent}
+                showsVerticalScrollIndicator
+              >
+                <View style={styles.receiptHeader}>
+                  <Text style={styles.receiptCompany}>S.B Distribution</Text>
+                  <Text style={styles.receiptDocTitle}>Sales Order Receipt</Text>
+                  <View style={styles.receiptBadge}>
+                    <Text style={styles.receiptBadgeText}>Pending Approval</Text>
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.receiptSection}>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Order #</Text>
-                  <Text style={styles.receiptValue}>
-                    {receipt?.id ? receipt.id.slice(0, 8).toUpperCase() : '--'}
-                  </Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Shop</Text>
-                  <Text style={styles.receiptValue}>{receipt?.shop?.name || 'N/A'}</Text>
-                </View>
-                {receipt?.shop?.address ? (
+                <View style={styles.receiptSection}>
                   <View style={styles.receiptRow}>
-                    <Text style={styles.receiptLabel}>Address</Text>
-                    <Text style={styles.receiptValue}>{receipt.shop.address}</Text>
+                    <Text style={styles.receiptLabel}>Order #</Text>
+                    <Text style={styles.receiptValue}>
+                      {receipt?.id ? receipt.id.slice(0, 8).toUpperCase() : '--'}
+                    </Text>
                   </View>
-                ) : null}
-                {receipt?.shop?.phone ? (
                   <View style={styles.receiptRow}>
-                    <Text style={styles.receiptLabel}>Phone</Text>
-                    <Text style={styles.receiptValue}>{receipt.shop.phone}</Text>
+                    <Text style={styles.receiptLabel}>Shop</Text>
+                    <Text style={styles.receiptValue}>{receipt?.shop?.name || 'N/A'}</Text>
                   </View>
+                  {receipt?.shop?.address ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptLabel}>Address</Text>
+                      <Text style={styles.receiptValue}>{receipt.shop.address}</Text>
+                    </View>
+                  ) : null}
+                  {receipt?.shop?.phone ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={styles.receiptLabel}>Phone</Text>
+                      <Text style={styles.receiptValue}>{receipt.shop.phone}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptLabel}>Date</Text>
+                    <Text style={styles.receiptValue}>{receiptDateInfo.dateText}</Text>
+                  </View>
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptLabel}>Time</Text>
+                    <Text style={styles.receiptValue}>{receiptDateInfo.timeText}</Text>
+                  </View>
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptLabel}>Items</Text>
+                    <Text style={styles.receiptValue}>{(receipt?.items || []).length}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.receiptTable}>
+                  <View style={styles.receiptTableHeader}>
+                    <Text style={[styles.receiptCell, styles.receiptCellItem, styles.receiptTableHeaderText]}>
+                      Item
+                    </Text>
+                    <Text style={[styles.receiptCell, styles.receiptCellQty, styles.receiptTableHeaderText]}>
+                      Qty
+                    </Text>
+                    <Text style={[styles.receiptCell, styles.receiptCellUnit, styles.receiptTableHeaderText]}>
+                      Unit
+                    </Text>
+                    <Text style={[styles.receiptCell, styles.receiptCellTotal, styles.receiptTableHeaderText]}>
+                      Total
+                    </Text>
+                  </View>
+                  {(receipt?.items || []).map((item: any, index: number) => (
+                    <View key={item.product_id || index} style={styles.receiptTableRow}>
+                      <Text style={[styles.receiptCell, styles.receiptCellItem]}>
+                        {index + 1}. {item.name}
+                        {item.free_quantity > 0 ? ` (+${item.free_quantity} free)` : ''}
+                      </Text>
+                      <Text style={[styles.receiptCell, styles.receiptCellQty]}>{item.quantity}</Text>
+                      <Text style={[styles.receiptCell, styles.receiptCellUnit]}>
+                        {formatCurrency(item.unit_price)}
+                      </Text>
+                      <Text style={[styles.receiptCell, styles.receiptCellTotal]}>
+                        {formatCurrency(Number(item.unit_price || 0) * Number(item.quantity || 0))}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.receiptTotalRow}>
+                  <Text style={styles.receiptTotalLabel}>Total Amount (LKR)</Text>
+                  <Text style={styles.receiptTotalValue}>{receiptTotal.toFixed(2)}</Text>
+                </View>
+
+                <View style={styles.receiptSignature}>
+                  <View style={styles.receiptSignatureBlock}>
+                    <View style={styles.receiptSignatureLine} />
+                    <Text style={styles.receiptSignatureLabel}>Prepared By</Text>
+                  </View>
+                  <View style={styles.receiptSignatureBlock}>
+                    <View style={styles.receiptSignatureLine} />
+                    <Text style={styles.receiptSignatureLabel}>Customer Signature</Text>
+                  </View>
+                </View>
+
+                <View style={styles.receiptFooter}>
+                  <Text style={styles.receiptFooterText}>Thank you for your business.</Text>
+                  <Text style={styles.receiptFooterText}>
+                    Printed on: {new Date().toLocaleString()}
+                  </Text>
+                </View>
+
+                {messageStatus.type ? (
+                  <Text
+                    style={[
+                      styles.message,
+                      messageStatus.type === 'success' ? styles.messageSuccess : styles.messageError,
+                    ]}
+                  >
+                    {messageStatus.message}
+                  </Text>
                 ) : null}
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Date</Text>
-                  <Text style={styles.receiptValue}>{receiptDateInfo.dateText}</Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Time</Text>
-                  <Text style={styles.receiptValue}>{receiptDateInfo.timeText}</Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Items</Text>
-                  <Text style={styles.receiptValue}>{(receipt?.items || []).length}</Text>
-                </View>
-              </View>
-
-              <View style={styles.receiptTable}>
-                <View style={styles.receiptTableHeader}>
-                  <Text style={[styles.receiptCell, styles.receiptCellItem, styles.receiptTableHeaderText]}>
-                    Item
-                  </Text>
-                  <Text style={[styles.receiptCell, styles.receiptCellQty, styles.receiptTableHeaderText]}>
-                    Qty
-                  </Text>
-                  <Text style={[styles.receiptCell, styles.receiptCellUnit, styles.receiptTableHeaderText]}>
-                    Unit
-                  </Text>
-                  <Text style={[styles.receiptCell, styles.receiptCellTotal, styles.receiptTableHeaderText]}>
-                    Total
-                  </Text>
-                </View>
-                {(receipt?.items || []).map((item: any, index: number) => (
-                  <View key={item.product_id || index} style={styles.receiptTableRow}>
-                    <Text style={[styles.receiptCell, styles.receiptCellItem]}>
-                      {index + 1}. {item.name}
-                      {item.free_quantity > 0 ? ` (+${item.free_quantity} free)` : ''}
-                    </Text>
-                    <Text style={[styles.receiptCell, styles.receiptCellQty]}>{item.quantity}</Text>
-                    <Text style={[styles.receiptCell, styles.receiptCellUnit]}>
-                      {formatCurrency(item.unit_price)}
-                    </Text>
-                    <Text style={[styles.receiptCell, styles.receiptCellTotal]}>
-                      {formatCurrency(Number(item.unit_price || 0) * Number(item.quantity || 0))}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.receiptTotalRow}>
-                <Text style={styles.receiptTotalLabel}>Total Amount (LKR)</Text>
-                <Text style={styles.receiptTotalValue}>{receiptTotal.toFixed(2)}</Text>
-              </View>
-
-              <View style={styles.receiptSignature}>
-                <View style={styles.receiptSignatureBlock}>
-                  <View style={styles.receiptSignatureLine} />
-                  <Text style={styles.receiptSignatureLabel}>Prepared By</Text>
-                </View>
-                <View style={styles.receiptSignatureBlock}>
-                  <View style={styles.receiptSignatureLine} />
-                  <Text style={styles.receiptSignatureLabel}>Customer Signature</Text>
-                </View>
-              </View>
-
-              <View style={styles.receiptFooter}>
-                <Text style={styles.receiptFooterText}>Thank you for your business.</Text>
-                <Text style={styles.receiptFooterText}>
-                  Printed on: {new Date().toLocaleString()}
+                <Text style={styles.printerMetaText}>
+                  Printer: {selectedPrinterMac || 'Not selected'}
                 </Text>
-              </View>
 
-              {messageStatus.type ? (
-                <Text
-                  style={[
-                    styles.message,
-                    messageStatus.type === 'success' ? styles.messageSuccess : styles.messageError,
-                  ]}
-                >
-                  {messageStatus.message}
-                </Text>
-              ) : null}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.actionSecondary}
+                    onPress={() => {
+                      setShowReceipt(false);
+                    }}
+                  >
+                    <Text style={styles.actionText}>Close</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionSecondary, printing && styles.buttonDisabled]}
+                    onPress={openPrinterPicker}
+                    disabled={printing}
+                  >
+                    <Text style={styles.actionText}>Choose Printer</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.actionPrimary, (printing || loadingPrinters) && styles.buttonDisabled]}
+                    onPress={handlePrintReceipt}
+                    disabled={printing || loadingPrinters}
+                  >
+                    <Text style={styles.actionTextOnAccent}>{printing ? 'Printing...' : 'Print Receipt'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.actionSecondary}
-                  onPress={() => {
-                    setShowReceipt(false);
-                  }}
-                >
-                  <Text style={styles.actionText}>Close</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.actionPrimary} onPress={() => {}}>
-                  <Text style={styles.actionTextOnAccent}>Print Receipt</Text>
-                </TouchableOpacity>
-              </View>
+        <Modal
+          visible={showPrinterPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowPrinterPicker(false)}
+        >
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Choose Bluetooth Printer</Text>
+              {loadingPrinters ? (
+                <View style={styles.centerInline}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={styles.centerText}>Loading paired printers...</Text>
+                </View>
+              ) : pairedPrinters.length > 0 ? (
+                <FlatList
+                  data={pairedPrinters}
+                  keyExtractor={(item) => item.macAddress}
+                  style={styles.productList}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[
+                        styles.dropdownItem,
+                        item.macAddress === selectedPrinterMac && styles.selectedPrinterItem,
+                      ]}
+                      onPress={() => choosePrinter(item)}
+                    >
+                      <Text style={styles.dropdownTitle}>{item.deviceName || 'Bluetooth Printer'}</Text>
+                      <Text style={styles.dropdownSubtitle}>{item.macAddress}</Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              ) : (
+                <Text style={styles.emptyText}>No paired Bluetooth printers found.</Text>
+              )}
+              <TouchableOpacity
+                style={[styles.actionSecondary, loadingPrinters && styles.buttonDisabled]}
+                onPress={refreshPairedPrinters}
+                disabled={loadingPrinters}
+              >
+                <Text style={styles.actionText}>{loadingPrinters ? 'Refreshing...' : 'Refresh Printers'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionSecondary} onPress={() => setShowPrinterPicker(false)}>
+                <Text style={styles.actionText}>Close</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </Modal>
@@ -713,6 +1153,12 @@ const makeStyles = (colors: ThemeColors) =>
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+  },
+  centerInline: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 8,
   },
   centerText: {
     marginTop: 12,
@@ -948,7 +1394,14 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    maxHeight: '92%',
+  },
+  receiptScroll: {
+    flexGrow: 0,
+  },
+  receiptScrollContent: {
     gap: 12,
+    paddingBottom: 6,
   },
   receiptHeader: {
     alignItems: 'center',
@@ -1244,5 +1697,15 @@ const makeStyles = (colors: ThemeColors) =>
   messageError: {
     backgroundColor: colors.dangerSurface,
     color: colors.danger,
+  },
+  printerMetaText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  selectedPrinterItem: {
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: 10,
   },
 });
