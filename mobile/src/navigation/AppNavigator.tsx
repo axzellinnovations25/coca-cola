@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
 import BillsCollectionsScreen from '../screens/BillsCollectionsScreen';
 import CreateOrderScreen from '../screens/CreateOrderScreen';
@@ -27,25 +28,17 @@ function MoreNavigator() {
     <MoreStack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: colors.accent,
-          borderBottomColor: colors.accent,
-          borderBottomWidth: 0,
-          shadowColor: colors.accent,
-          shadowOpacity: 0.25,
-          shadowRadius: 10,
-          elevation: 6,
+          backgroundColor: colors.background,
         },
-        headerTintColor: colors.background,
+        headerShadowVisible: true,
+        headerTintColor: colors.text,
         contentStyle: { backgroundColor: colors.background },
         headerTitle: 'S.B Distribution',
         headerTitleStyle: {
           fontWeight: '800',
-          fontSize: 18,
-          letterSpacing: 0.3,
-          color: colors.background,
+          fontSize: 20,
+          color: colors.text,
         },
-        headerBackTitleVisible: false,
-        headerBackTitle: '',
       }}
     >
       <MoreStack.Screen name="More" component={MoreMenuScreen} />
@@ -59,63 +52,73 @@ function MoreNavigator() {
 function RepTabs() {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, 6);
+  const bottomInset = Math.max(insets.bottom, 8);
   return (
     <Tabs.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: colors.accent,
-          borderBottomColor: colors.accent,
+          backgroundColor: 'transparent',
+          borderBottomColor: 'transparent',
           borderBottomWidth: 0,
-          shadowColor: colors.accent,
-          shadowOpacity: 0.25,
-          shadowRadius: 10,
-          elevation: 6,
         },
-        headerTintColor: colors.background,
+        headerBackground: () => (
+          <LinearGradient
+            colors={[colors.gradientStart, colors.gradientEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ flex: 1 }}
+          />
+        ),
+        headerTintColor: '#FFFFFF',
         headerTitleStyle: {
           fontWeight: '800',
-          fontSize: 18,
-          letterSpacing: 0.3,
-          color: colors.background,
+          fontSize: 20,
+          letterSpacing: -0.3,
+          color: '#FFFFFF',
         },
         tabBarStyle: {
-          backgroundColor: colors.surfaceAlt,
-          borderTopColor: colors.borderStrong,
-          borderTopWidth: 1,
-          height: 56 + bottomInset,
-          paddingTop: 4,
-          paddingBottom: bottomInset,
-          marginBottom: 0,
-          marginHorizontal: 12,
-          borderRadius: 14,
-          paddingHorizontal: 6,
+          position: 'absolute',
+          backgroundColor: colors.surface,
+          borderTopColor: 'transparent',
+          borderTopWidth: 0,
+          height: 65 + bottomInset,
+          paddingTop: 8,
+          paddingBottom: bottomInset + 4,
+          paddingHorizontal: 16,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOpacity: 0.1,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -4 },
         },
+        tabBarBackground: () => null,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '700',
+          fontSize: 11,
+          fontWeight: '600',
           marginTop: 4,
+          letterSpacing: 0.2,
         },
         tabBarItemStyle: {
-          borderRadius: 0,
-          marginHorizontal: 0,
-          paddingVertical: 0,
+          borderRadius: 12,
+          marginHorizontal: 4,
+          paddingVertical: 6,
+          gap: 2,
         },
         tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textSubtle,
-        tabBarActiveBackgroundColor: colors.accentSoft,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveBackgroundColor: 'transparent',
         headerTitle: 'S.B Distribution',
       }}
     >
       <Tabs.Screen
         name="Dashboard"
         component={DashboardScreen}
-        options={{ tabBarIcon: ({ color }) => <Text style={{ color }}>DB</Text> }}
+        options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>📊</Text> }}
       />
       <Tabs.Screen
         name="Create Order"
         component={CreateOrderScreen}
-        options={{ tabBarLabel: 'Order', tabBarIcon: ({ color }) => <Text style={{ color }}>+</Text> }}
+        options={{ tabBarLabel: 'Order', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22, fontWeight: '700' }}>➕</Text> }}
       />
       <Tabs.Screen
         name="Bills"
@@ -123,7 +126,7 @@ function RepTabs() {
         options={{
           title: 'Bills & Collections',
           tabBarLabel: 'Bills',
-          tabBarIcon: ({ color }) => <Text style={{ color }}>Bi</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>💰</Text>,
         }}
       />
       <Tabs.Screen
@@ -132,7 +135,7 @@ function RepTabs() {
         options={{
           title: 'More',
           headerShown: false,
-          tabBarIcon: ({ color }) => <Text style={{ color }}>...</Text>,
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>⋯</Text>,
         }}
       />
     </Tabs.Navigator>

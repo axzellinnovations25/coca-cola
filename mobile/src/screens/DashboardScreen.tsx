@@ -1,13 +1,17 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  ScrollView,
+  Animated,
+  Platform,
+  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Haptics from 'expo-haptics';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
@@ -46,6 +50,80 @@ const formatCurrency = (amount: number) =>
     maximumFractionDigits: 0,
   }).format(amount);
 
+// Animated Card Component with scale effect
+const AnimatedCard = ({ children, delay = 0, style }: any) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        delay,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        delay,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: fadeAnim,
+          transform: [{ scale: scaleAnim }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+};
+
+// Pressable Card with haptic feedback
+const PressableCard = ({ children, style, onPress }: any) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    if (Platform.OS === 'ios') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    Animated.spring(scaleAnim, {
+      toValue: 0.97,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 5,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.9}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={onPress}
+    >
+      <Animated.View style={[style, { transform: [{ scale: scaleAnim }] }]}>
+        {children}
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
 export default function DashboardScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -53,11 +131,12 @@ export default function DashboardScreen() {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [recentCollections, setRecentCollections] = useState<RecentCollection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async (isRefresh = false) => {
     try {
-      setLoading(true);
+      if (!isRefresh) setLoading(true);
       setError('');
 
       const [ordersData, collectionsData, shopsData] = await Promise.all([
@@ -113,12 +192,25 @@ export default function DashboardScreen() {
       setStats(dashboardStats);
       setRecentOrders(recentOrdersData);
       setRecentCollections(recentCollectionsData);
+
+      if (isRefresh && Platform.OS === 'ios') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
     } catch (err: any) {
       setError(err.message);
+      if (isRefresh && Platform.OS === 'ios') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      }
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchDashboardData(true);
+  }, [fetchDashboardData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -140,7 +232,7 @@ export default function DashboardScreen() {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading dashboard</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={fetchDashboardData}>
+        <TouchableOpacity style={styles.retry} onPress={() => fetchDashboardData()}>
           <Text style={styles.retryText}>Try again</Text>
         </TouchableOpacity>
       </View>
@@ -148,49 +240,70 @@ export default function DashboardScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.headerCard}>
-        <View style={styles.headerTopRow}>
-          <Text style={styles.headerTitle}>Dashboard</Text>
-          <View style={styles.datePill}>
-            <Text style={styles.datePillText}>{new Date().toLocaleDateString()}</Text>
+    <Animated.ScrollView
+      contentContainerStyle={styles.container}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor={colors.accent}
+          colors={[colors.accent]}
+        />
+      }
+    >
+      {/* Header Card */}
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <AnimatedCard delay={0} style={styles.headerCard}>
+          <View style={styles.headerTopRow}>
+            <Text style={styles.headerTitle}>Dashboard</Text>
+            <View style={styles.datePill}>
+              <Text style={styles.datePillText}>{new Date().toLocaleDateString()}</Text>
+            </View>
           </View>
-        </View>
-        <Text style={styles.headerSubtitle}>Welcome back! Here is your live summary.</Text>
-        <View style={styles.headerStatsRow}>
-          <View style={styles.headerStat}>
-            <Text style={styles.headerStatTag}>Today</Text>
-            <Text style={styles.headerStatValue}>{stats?.today_orders || 0}</Text>
-            <Text style={styles.headerStatLabel}>Orders Today</Text>
+          <Text style={styles.headerSubtitle}>Welcome back! Here's your live summary.</Text>
+          <View style={styles.headerStatsRow}>
+            <View style={styles.headerStat}>
+              <Text style={styles.headerStatTag}>TODAY</Text>
+              <Text style={styles.headerStatValue}>{stats?.today_orders || 0}</Text>
+              <Text style={styles.headerStatLabel}>Orders</Text>
+            </View>
+            <View style={styles.headerStat}>
+              <Text style={styles.headerStatTag}>TODAY</Text>
+              <Text style={styles.headerStatValue}>{stats?.today_collections || 0}</Text>
+              <Text style={styles.headerStatLabel}>Collections</Text>
+            </View>
           </View>
-          <View style={styles.headerStat}>
-            <Text style={styles.headerStatTag}>Today</Text>
-            <Text style={styles.headerStatValue}>{stats?.today_collections || 0}</Text>
-            <Text style={styles.headerStatLabel}>Collections</Text>
-          </View>
-        </View>
-      </View>
+        </AnimatedCard>
+      </LinearGradient>
 
+      {/* Stats Grid */}
       <View style={styles.grid}>
-        <View style={[styles.statCard, styles.statCardBlue]}>
-          <Text style={styles.statLabel}>Total Orders</Text>
+        <AnimatedCard delay={100} style={[styles.statCard, styles.statCardBlue]}>
+          <Text style={styles.statLabel}>TOTAL ORDERS</Text>
           <Text style={styles.statValue}>{stats?.total_orders || 0}</Text>
-        </View>
-        <View style={[styles.statCard, styles.statCardIndigo]}>
-          <Text style={styles.statLabel}>Total Revenue</Text>
+        </AnimatedCard>
+        <AnimatedCard delay={150} style={[styles.statCard, styles.statCardIndigo]}>
+          <Text style={styles.statLabel}>TOTAL REVENUE</Text>
           <Text style={styles.statValue}>{formatCurrency(stats?.total_revenue || 0)}</Text>
-        </View>
-        <View style={[styles.statCard, styles.statCardAmber]}>
-          <Text style={styles.statLabel}>Outstanding</Text>
+        </AnimatedCard>
+        <AnimatedCard delay={200} style={[styles.statCard, styles.statCardAmber]}>
+          <Text style={styles.statLabel}>OUTSTANDING</Text>
           <Text style={styles.statValue}>{formatCurrency(stats?.outstanding_amount || 0)}</Text>
-        </View>
-        <View style={[styles.statCard, styles.statCardGreen]}>
-          <Text style={styles.statLabel}>Shops Assigned</Text>
+        </AnimatedCard>
+        <AnimatedCard delay={250} style={[styles.statCard, styles.statCardGreen]}>
+          <Text style={styles.statLabel}>SHOPS</Text>
           <Text style={styles.statValue}>{stats?.shop_count || 0}</Text>
-        </View>
+        </AnimatedCard>
       </View>
 
-      <View style={styles.sectionCard}>
+      {/* Order Status Section */}
+      <AnimatedCard delay={300} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Order Status</Text>
           <Text style={styles.sectionCaption}>All time</Text>
@@ -209,16 +322,17 @@ export default function DashboardScreen() {
             <Text style={styles.statusValue}>{stats?.rejected_orders || 0}</Text>
           </View>
         </View>
-      </View>
+      </AnimatedCard>
 
-      <View style={styles.sectionCard}>
+      {/* Recent Orders Section */}
+      <AnimatedCard delay={350} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Orders</Text>
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentOrders.length ? (
-          recentOrders.map((order) => (
-            <View key={order.id} style={styles.listRow}>
+          recentOrders.map((order, index) => (
+            <PressableCard key={order.id} style={styles.listRow}>
               <View style={styles.listText}>
                 <Text style={styles.listTitle}>{order.shop_name}</Text>
                 <Text style={styles.listCaption}>{formatCurrency(order.total)}</Text>
@@ -226,21 +340,22 @@ export default function DashboardScreen() {
               <View style={styles.statusBadge}>
                 <Text style={styles.statusBadgeText}>{order.status}</Text>
               </View>
-            </View>
+            </PressableCard>
           ))
         ) : (
           <Text style={styles.emptyText}>No recent orders</Text>
         )}
-      </View>
+      </AnimatedCard>
 
-      <View style={styles.sectionCard}>
+      {/* Recent Collections Section */}
+      <AnimatedCard delay={400} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Recent Collections</Text>
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentCollections.length ? (
-          recentCollections.map((collection) => (
-            <View key={collection.payment_id} style={styles.listRow}>
+          recentCollections.map((collection, index) => (
+            <PressableCard key={collection.payment_id} style={styles.listRow}>
               <View style={styles.listText}>
                 <Text style={styles.listTitle}>{collection.shop_name}</Text>
                 <Text style={styles.listCaption}>{formatCurrency(collection.amount)}</Text>
@@ -248,123 +363,140 @@ export default function DashboardScreen() {
               <Text style={styles.dateText}>
                 {new Date(collection.payment_date).toLocaleDateString()}
               </Text>
-            </View>
+            </PressableCard>
           ))
         ) : (
           <Text style={styles.emptyText}>No recent collections</Text>
         )}
-      </View>
-    </ScrollView>
+      </AnimatedCard>
+    </Animated.ScrollView>
   );
 }
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
   container: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 95,
     backgroundColor: colors.background,
-    gap: 16,
+    gap: 14,
   },
   center: {
     flex: 1,
     backgroundColor: colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: 24,
   },
   centerText: {
-    marginTop: 12,
+    marginTop: 16,
     color: colors.textSubtle,
     fontWeight: '600',
+    fontSize: 15,
   },
   errorTitle: {
     color: colors.danger,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
+    marginBottom: 8,
   },
   errorText: {
     color: colors.textSubtle,
     marginTop: 8,
     textAlign: 'center',
+    fontSize: 15,
+    lineHeight: 22,
   },
   retry: {
-    marginTop: 16,
+    marginTop: 24,
     backgroundColor: colors.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    minHeight: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   retryText: {
     color: colors.background,
     fontWeight: '700',
+    fontSize: 16,
+  },
+  headerGradient: {
+    borderRadius: 24,
+    padding: 2,
+    marginBottom: 14,
   },
   headerCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 22,
     padding: 20,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    gap: 10,
-    shadowColor: colors.text,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 3,
+    borderWidth: 0,
+    gap: 12,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 4,
   },
   headerTitle: {
-    color: colors.text,
-    fontSize: 26,
+    color: '#1F2937',
+    fontSize: 32,
     fontWeight: '800',
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   headerSubtitle: {
-    color: colors.textSubtle,
-    lineHeight: 18,
+    color: '#4B5563',
+    lineHeight: 20,
+    fontSize: 15,
   },
   datePill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderWidth: 0,
   },
   datePillText: {
-    color: colors.textMuted,
+    color: '#6B7280',
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 13,
   },
   headerStatsRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 8,
+    marginTop: 12,
   },
   headerStat: {
     flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 0,
   },
   headerStatTag: {
-    color: colors.textMuted,
-    fontSize: 11,
-    letterSpacing: 0.4,
+    color: '#9CA3AF',
+    fontSize: 10,
+    letterSpacing: 0.8,
     textTransform: 'uppercase',
+    fontWeight: '700',
   },
   headerStatValue: {
-    color: colors.text,
-    fontSize: 22,
+    color: colors.gradientStart,
+    fontSize: 28,
     fontWeight: '800',
+    marginTop: 4,
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   headerStatLabel: {
-    color: colors.textMuted,
-    marginTop: 4,
+    color: '#6B7280',
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '500',
   },
   grid: {
     flexDirection: 'row',
@@ -374,65 +506,81 @@ const makeStyles = (colors: ThemeColors) =>
   statCard: {
     flexBasis: '48%',
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.text,
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 0,
+    minHeight: 100,
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   statCardBlue: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardBlue + '15',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.cardBlue,
   },
   statCardIndigo: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardPurple + '15',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.cardPurple,
   },
   statCardAmber: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardAmber + '15',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.cardAmber,
   },
   statCardGreen: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.cardGreen + '15',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.cardGreen,
   },
   statLabel: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 0.8,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   statValue: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 6,
+    fontSize: 24,
+    fontWeight: '800',
+    marginTop: 8,
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   sectionCard: {
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 0,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 4,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
+    letterSpacing: -0.3,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   sectionCaption: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
   },
   statusGrid: {
@@ -442,44 +590,52 @@ const makeStyles = (colors: ThemeColors) =>
   statusCard: {
     flex: 1,
     backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderRadius: 14,
+    paddingVertical: 14,
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
+    borderWidth: 0,
     alignItems: 'center',
+    minHeight: 70,
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   statusPending: {
-    borderColor: colors.borderStrong,
     backgroundColor: colors.surfaceMuted,
   },
   statusApproved: {
-    borderColor: colors.borderStrong,
     backgroundColor: colors.surfaceMuted,
   },
   statusRejected: {
-    borderColor: colors.borderStrong,
     backgroundColor: colors.surfaceMuted,
   },
   statusLabel: {
     color: colors.textSubtle,
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '600',
   },
   statusValue: {
     color: colors.text,
     fontWeight: '800',
-    fontSize: 16,
-    marginTop: 4,
+    fontSize: 24,
+    marginTop: 6,
+    letterSpacing: -0.5,
   },
   listRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 0,
+    minHeight: 68,
+    shadowColor: '#000',
+    shadowOpacity: 0.02,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
   },
   listText: {
     flex: 1,
@@ -488,32 +644,45 @@ const makeStyles = (colors: ThemeColors) =>
   listTitle: {
     color: colors.text,
     fontWeight: '700',
+    fontSize: 16,
+    marginBottom: 4,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
   listCaption: {
     color: colors.textMuted,
     marginTop: 2,
+    fontSize: 14,
+    fontWeight: '500',
   },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.accent + '20',
+    borderWidth: 0,
+    minHeight: 30,
+    justifyContent: 'center',
+    shadowColor: colors.accent,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
   },
   statusBadgeText: {
     color: colors.accent,
     fontWeight: '700',
     textTransform: 'capitalize',
-    fontSize: 12,
+    fontSize: 13,
   },
   dateText: {
     color: colors.textMuted,
     fontWeight: '600',
-    fontSize: 12,
+    fontSize: 13,
   },
   emptyText: {
     color: colors.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+    paddingVertical: 16,
   },
 });
 
