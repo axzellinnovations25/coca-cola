@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { apiFetch } from '../../../utils/api';
+import { apiFetch, clearCache } from '../../../utils/api';
 
 interface Product {
   id: string;
@@ -90,6 +90,7 @@ export default function ProductManagement() {
   const fetchProducts = () => {
     setLoading(true);
     setError('');
+    clearCache('/api/marudham/products');
     apiFetch('/api/marudham/products')
       .then((data: { products: Product[] }) => setProducts(data.products))
       .catch((err: { message: string }) => setError(err.message))
@@ -115,6 +116,7 @@ export default function ProductManagement() {
       // Small delay to ensure server operation completes
       await new Promise(resolve => setTimeout(resolve, 200));
       // Fetch fresh data directly
+      clearCache('/api/marudham/products');
       const data = await apiFetch('/api/marudham/products');
       setProducts(data.products);
       setError('');
@@ -175,7 +177,7 @@ export default function ProductManagement() {
         }),
       });
       setShowAddModal(false);
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Product added successfully!');
     } catch (err: any) {
       setFormError(err.message);
@@ -202,7 +204,7 @@ export default function ProductManagement() {
       });
       setShowEditModal(false);
       setEditProduct(null);
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Product updated successfully!');
     } catch (err: any) {
       setFormError(err.message);
@@ -217,7 +219,7 @@ export default function ProductManagement() {
     setFormLoading(true);
     try {
       await apiFetch(`/api/marudham/products/${id}`, { method: 'DELETE' });
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Product deleted successfully!');
     } catch (err: any) {
       alert(err.message);

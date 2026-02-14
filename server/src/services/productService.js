@@ -3,9 +3,10 @@ const messagingService = require('./messagingService');
 const { randomUUID } = require('crypto');
 
 async function logProductAction({ product_id, user_id, action, details }) {
+  const logId = randomUUID();
   await pool.query(
-    'INSERT INTO product_logs (product_id, user_id, action, details) VALUES ($1, $2, $3, $4)',
-    [product_id, user_id, action, details ? JSON.stringify(details) : null]
+    'INSERT INTO product_logs (id, product_id, user_id, action, details) VALUES ($1, $2, $3, $4, $5)',
+    [logId, product_id, user_id, action, details ? JSON.stringify(details) : null]
   );
 }
 
