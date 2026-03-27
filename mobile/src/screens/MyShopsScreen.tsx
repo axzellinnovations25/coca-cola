@@ -1,7 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   StyleSheet,
   Switch,
@@ -11,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { apiFetch } from '../api/api';
+import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import DismissKeyboard from '../components/DismissKeyboard';
 
@@ -66,12 +66,7 @@ export default function MyShopsScreen() {
   }, [shops, search, outstandingOnly]);
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.accent} size="large" />
-        <Text style={styles.centerText}>Loading shops...</Text>
-      </View>
-    );
+    return <ListSkeleton rows={5} />;
   }
 
   if (error) {
@@ -136,6 +131,31 @@ export default function MyShopsScreen() {
                 <Text style={styles.metaLabel}>Outstanding</Text>
               </View>
             </View>
+
+            {item.max_bill_amount > 0 && (
+              <View style={styles.progressContainer}>
+                {(() => {
+                  const ratio = Math.min(1, item.current_outstanding / item.max_bill_amount);
+                  const pct = Math.round(ratio * 100);
+                  const barColor = ratio > 0.8 ? colors.danger : ratio > 0.5 ? colors.warning : colors.success;
+                  return (
+                    <>
+                      <View style={styles.progressTrack}>
+                        <View
+                          style={[
+                            styles.progressFill,
+                            { width: `${pct}%` as any, backgroundColor: barColor },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.progressLabel, { color: barColor }]}>
+                        {pct}% of credit limit used
+                      </Text>
+                    </>
+                  );
+                })()}
+              </View>
+            )}
 
             <View style={styles.statRow}>
               <View style={styles.statBox}>
@@ -301,6 +321,23 @@ const makeStyles = (colors: ThemeColors) =>
     color: colors.textMuted,
     fontSize: 12,
     marginTop: 4,
+  },
+  progressContainer: {
+    gap: 4,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.border,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  progressLabel: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   statRow: {
     flexDirection: 'row',

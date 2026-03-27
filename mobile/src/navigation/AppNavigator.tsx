@@ -1,11 +1,11 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { useColorScheme, View } from 'react-native';
 import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useColorScheme } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import BillsCollectionsScreen from '../screens/BillsCollectionsScreen';
 import CreateOrderScreen from '../screens/CreateOrderScreen';
@@ -16,7 +16,42 @@ import MyOrdersScreen from '../screens/MyOrdersScreen';
 import MyShopsScreen from '../screens/MyShopsScreen';
 import LoadingScreen from '../screens/LoadingScreen';
 import MoreMenuScreen from '../screens/MoreMenuScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import { useThemeColors } from '../theme/colors';
+
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
+function TabIcon({
+  name,
+  activeName,
+  color,
+  focused,
+  size,
+}: {
+  name: IoniconName;
+  activeName: IoniconName;
+  color: string;
+  focused: boolean;
+  size: number;
+}) {
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name={focused ? activeName : name} size={size} color={color} />
+      {focused && (
+        <View
+          style={{
+            position: 'absolute',
+            bottom: -6,
+            width: 4,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: color,
+          }}
+        />
+      )}
+    </View>
+  );
+}
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
@@ -45,6 +80,7 @@ function MoreNavigator() {
       <MoreStack.Screen name="My Shops" component={MyShopsScreen} />
       <MoreStack.Screen name="My Orders" component={MyOrdersScreen} />
       <MoreStack.Screen name="My Collection" component={MyCollectionScreen} />
+      <MoreStack.Screen name="Settings" component={SettingsScreen} />
     </MoreStack.Navigator>
   );
 }
@@ -113,12 +149,21 @@ function RepTabs() {
       <Tabs.Screen
         name="Dashboard"
         component={DashboardScreen}
-        options={{ tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>📊</Text> }}
+        options={{
+          tabBarIcon: ({ color, focused, size }) => (
+            <TabIcon name="grid-outline" activeName="grid" color={color} focused={focused} size={size} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="Create Order"
         component={CreateOrderScreen}
-        options={{ tabBarLabel: 'Order', tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 22, fontWeight: '700' }}>➕</Text> }}
+        options={{
+          tabBarLabel: 'Order',
+          tabBarIcon: ({ color, focused, size }) => (
+            <TabIcon name="add-circle-outline" activeName="add-circle" color={color} focused={focused} size={size} />
+          ),
+        }}
       />
       <Tabs.Screen
         name="Bills"
@@ -126,7 +171,9 @@ function RepTabs() {
         options={{
           title: 'Bills & Collections',
           tabBarLabel: 'Bills',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>💰</Text>,
+          tabBarIcon: ({ color, focused, size }) => (
+            <TabIcon name="wallet-outline" activeName="wallet" color={color} focused={focused} size={size} />
+          ),
         }}
       />
       <Tabs.Screen
@@ -135,7 +182,9 @@ function RepTabs() {
         options={{
           title: 'More',
           headerShown: false,
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20, fontWeight: '700' }}>⋯</Text>,
+          tabBarIcon: ({ color, focused, size }) => (
+            <TabIcon name="menu-outline" activeName="menu" color={color} focused={focused} size={size} />
+          ),
         }}
       />
     </Tabs.Navigator>

@@ -7,6 +7,7 @@ const menuItems = [
   { label: 'My Shops', description: 'Assigned shops and balances' },
   { label: 'My Orders', description: 'Order history and receipts' },
   { label: 'My Collection', description: 'Collection history and stats' },
+  { label: 'Settings', description: 'Printer, account and app preferences' },
 ];
 
 export default function MoreMenuScreen() {

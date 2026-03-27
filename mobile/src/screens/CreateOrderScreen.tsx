@@ -1,6 +1,6 @@
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -255,9 +255,11 @@ export default function CreateOrderScreen() {
     };
   }, [receipt?.created_at]);
 
-  const fetchData = useCallback(async () => {
+  const lastFetchedAt = useRef(0);
+
+  const fetchData = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const [shopData, productData] = await Promise.all([
         apiFetch('/api/marudham/shops/assigned'),
@@ -265,6 +267,7 @@ export default function CreateOrderScreen() {
       ]);
       setShops(shopData.shops || []);
       setProducts(productData.products || []);
+      lastFetchedAt.current = Date.now();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -274,7 +277,11 @@ export default function CreateOrderScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchData();
+      const now = Date.now();
+      const isStale = now - lastFetchedAt.current > 30_000;
+      if (isStale) {
+        fetchData(lastFetchedAt.current > 0); // silent if previously loaded
+      }
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
           if (savedMac) {
@@ -300,7 +307,7 @@ export default function CreateOrderScreen() {
     return products.filter((product) => product.name.toLowerCase().includes(q));
   }, [products, productSearch]);
 
-  const addItem = () => {
+  const addItem = (andNext = false) => {
     if (!selectedProduct) return;
     const qty = Math.max(1, Number(quantity));
     setOrderItems((items) => {
@@ -324,6 +331,7 @@ export default function CreateOrderScreen() {
     setSelectedProduct(null);
     setProductSearch('');
     setQuantity('1');
+    if (andNext) setShowProductPicker(true);
   };
 
   const updateQuantity = (productId: string, delta: number) => {
@@ -746,11 +754,18 @@ export default function CreateOrderScreen() {
               onChangeText={setQuantity}
             />
             <TouchableOpacity
-              style={[styles.button, !selectedProduct && styles.buttonDisabled]}
-              onPress={addItem}
+              style={[styles.button, styles.buttonSecondary, !selectedProduct && styles.buttonDisabled]}
+              onPress={() => addItem(false)}
               disabled={!selectedProduct}
             >
-              <Text style={styles.buttonText}>Add Item</Text>
+              <Text style={styles.buttonTextSecondary}>Add</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.button, !selectedProduct && styles.buttonDisabled]}
+              onPress={() => addItem(true)}
+              disabled={!selectedProduct}
+            >
+              <Text style={styles.buttonText}>Add & Next</Text>
             </TouchableOpacity>
           </View>
 
@@ -1258,8 +1273,17 @@ const makeStyles = (colors: ThemeColors) =>
   buttonDisabled: {
     opacity: 0.6,
   },
+  buttonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
   buttonText: {
     color: colors.background,
+    fontWeight: '700',
+  },
+  buttonTextSecondary: {
+    color: colors.accent,
     fontWeight: '700',
   },
   itemsList: {

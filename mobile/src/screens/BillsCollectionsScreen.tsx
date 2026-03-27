@@ -1,10 +1,11 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   NativeModules,
   PermissionsAndroid,
@@ -19,7 +20,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ThermalPrinterModule from 'react-native-thermal-printer';
+import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../api/api';
+import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import DismissKeyboard from '../components/DismissKeyboard';
 
@@ -218,6 +221,7 @@ export default function BillsCollectionsScreen() {
   const [selectedShopName, setSelectedShopName] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
+  const [showNotesInput, setShowNotesInput] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [paymentSuccess, setPaymentSuccess] = useState('');
@@ -245,12 +249,15 @@ export default function BillsCollectionsScreen() {
   const [returnLoading, setReturnLoading] = useState(false);
   const [returnError, setReturnError] = useState('');
 
-  const fetchBills = useCallback(async () => {
+  const lastFetchedAt = useRef(0);
+
+  const fetchBills = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const data = await apiFetch('/api/marudham/bills/representative');
       setShops(data.bills || []);
+      lastFetchedAt.current = Date.now();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -260,7 +267,11 @@ export default function BillsCollectionsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchBills();
+      const now = Date.now();
+      const isStale = now - lastFetchedAt.current > 30_000;
+      if (isStale) {
+        fetchBills(lastFetchedAt.current > 0); // silent if previously loaded
+      }
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
           if (savedMac) setSelectedPrinterMac(savedMac);
@@ -277,7 +288,8 @@ export default function BillsCollectionsScreen() {
         bills: (shop.bills || []).filter((bill) => (bill.outstanding || 0) > 0),
       }))
       .filter((shop) => shop.shop_name.toLowerCase().includes(q))
-      .filter((shop) => (shop.bills || []).length > 0);
+      .filter((shop) => (shop.bills || []).length > 0)
+      .sort((a, b) => (b.total_outstanding || 0) - (a.total_outstanding || 0));
   }, [shops, search]);
 
   const totalOutstanding = shops.reduce((sum, s) => sum + (s.total_outstanding || 0), 0);
@@ -289,8 +301,9 @@ export default function BillsCollectionsScreen() {
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
     setSelectedShopName(shopName);
-    setPaymentAmount('');
+    setPaymentAmount(bill.outstanding.toFixed(2));
     setPaymentNotes('');
+    setShowNotesInput(false);
     setPaymentError('');
     setPaymentSuccess('');
     setSmsStatus({ type: null, message: '' });
@@ -357,7 +370,7 @@ export default function BillsCollectionsScreen() {
       setSelectedBill(null);
       setPaymentAmount('');
       setPaymentNotes('');
-      fetchBills();
+      fetchBills(true);
     } catch (err: any) {
       setPaymentError(err.message);
     } finally {
@@ -387,7 +400,7 @@ export default function BillsCollectionsScreen() {
       setReturnOrderId(null);
       setReturnItems([]);
       setReturnQuantities({});
-      fetchBills();
+      fetchBills(true);
     } catch (err: any) {
       setReturnError(err.message || 'Failed to record return');
     } finally {
@@ -650,12 +663,7 @@ export default function BillsCollectionsScreen() {
   };
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.accent} size="large" />
-        <Text style={styles.centerText}>Loading bills...</Text>
-      </View>
-    );
+    return <ListSkeleton rows={4} />;
   }
 
   if (error) {
@@ -744,67 +752,106 @@ export default function BillsCollectionsScreen() {
         )}
       />
 
+      {/* ─── Record Payment Modal ─── */}
       <Modal visible={!!selectedBill} transparent animationType="slide" onRequestClose={() => setSelectedBill(null)}>
-        <View style={styles.modalBackdrop}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={StyleSheet.absoluteFill} />
-          </TouchableWithoutFeedback>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Record Payment</Text>
-            <Text style={styles.modalLabel}>Bill ID</Text>
-            <Text style={styles.modalValue}>{selectedBill?.id.slice(0, 8)}...</Text>
-            <Text style={styles.modalLabel}>Outstanding</Text>
-            <Text style={styles.modalValue}>
-              {selectedBill ? selectedBill.outstanding.toFixed(2) : '0.00'} LKR
-            </Text>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={StyleSheet.absoluteFill} />
+            </TouchableWithoutFeedback>
+            <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{selectedShopName}</Text>
+
+            {/* Outstanding summary row */}
+            <View style={styles.paymentSummaryRow}>
+              <View>
+                <Text style={styles.paymentSummaryLabel}>Outstanding</Text>
+                <Text style={styles.paymentSummaryAmount}>
+                  {selectedBill ? selectedBill.outstanding.toFixed(2) : '0.00'} LKR
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={styles.paymentSummaryLabel}>Bill date</Text>
+                <Text style={styles.paymentSummaryMeta}>
+                  {selectedBill ? formatDate(selectedBill.created_at) : '--'}
+                </Text>
+              </View>
+            </View>
+
             <TextInput
-              placeholder="Amount"
+              placeholder="Amount (LKR)"
               placeholderTextColor={colors.textMuted}
               style={styles.input}
               keyboardType="numeric"
               value={paymentAmount}
               onChangeText={setPaymentAmount}
+              autoFocus
+              selectTextOnFocus
             />
-            <TextInput
-              placeholder="Notes (optional)"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.notesInput]}
-              value={paymentNotes}
-              onChangeText={setPaymentNotes}
-              multiline
-            />
+
+            {showNotesInput ? (
+              <TextInput
+                placeholder="Notes (optional)"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.input, styles.notesInput]}
+                value={paymentNotes}
+                onChangeText={setPaymentNotes}
+                multiline
+              />
+            ) : (
+              <TouchableOpacity style={styles.addNoteLink} onPress={() => setShowNotesInput(true)}>
+                <Ionicons name="add-circle-outline" size={16} color={colors.textMuted} />
+                <Text style={styles.addNoteLinkText}>Add a note</Text>
+              </TouchableOpacity>
+            )}
+
             {paymentError ? <Text style={styles.errorText}>{paymentError}</Text> : null}
-            {paymentSuccess ? <Text style={styles.successText}>{paymentSuccess}</Text> : null}
             {smsStatus.type ? (
               <Text style={smsStatus.type === 'success' ? styles.successText : styles.errorText}>
                 {smsStatus.message}
               </Text>
             ) : null}
+
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.actionSecondary} onPress={() => setSelectedBill(null)}>
-                <Text style={styles.actionText}>Close</Text>
+              <TouchableOpacity
+                style={styles.actionSecondary}
+                onPress={() => setSelectedBill(null)}
+                disabled={paymentLoading}
+              >
+                <Text style={styles.actionText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.actionPrimary}
-                onPress={submitPayment}
-                disabled={paymentLoading}
+                style={[styles.actionPrimary, (!paymentAmount || paymentLoading) && styles.actionDisabled]}
+                onPress={() => {
+                  if (!paymentAmount || Number(paymentAmount) <= 0) {
+                    setPaymentError('Please enter a valid amount.');
+                    return;
+                  }
+                  setPaymentError('');
+                  submitPayment();
+                }}
+                disabled={!paymentAmount || paymentLoading}
               >
                 <Text style={styles.actionTextOnAccent}>
                   {paymentLoading ? 'Recording...' : 'Record Payment'}
                 </Text>
               </TouchableOpacity>
-              {lastPaymentId && smsStatus.type === 'error' && (
-                <TouchableOpacity
-                  style={styles.actionSecondary}
-                  onPress={sendPaymentSMS}
-                  disabled={sendingSMS}
-                >
-                  <Text style={styles.actionText}>{sendingSMS ? 'Sending...' : 'Send SMS'}</Text>
-                </TouchableOpacity>
-              )}
             </View>
+            {lastPaymentId && smsStatus.type === 'error' && (
+              <TouchableOpacity
+                style={[styles.actionSecondary, { marginTop: 8 }]}
+                onPress={sendPaymentSMS}
+                disabled={sendingSMS}
+              >
+                <Text style={styles.actionText}>{sendingSMS ? 'Sending SMS...' : 'Retry SMS'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1023,11 +1070,15 @@ export default function BillsCollectionsScreen() {
         animationType="slide"
         onRequestClose={() => setShowReturnModal(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={StyleSheet.absoluteFill} />
-          </TouchableWithoutFeedback>
-          <View style={styles.modalCard}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.modalBackdrop}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={StyleSheet.absoluteFill} />
+            </TouchableWithoutFeedback>
+            <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Return Products</Text>
             {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
             <View style={styles.returnList}>
@@ -1060,7 +1111,8 @@ export default function BillsCollectionsScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
     </DismissKeyboard>
@@ -1257,6 +1309,34 @@ const makeStyles = (colors: ThemeColors) =>
     borderColor: colors.border,
     gap: 10,
   },
+  paymentSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    backgroundColor: colors.dangerSurface,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  paymentSummaryLabel: {
+    color: colors.danger,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  paymentSummaryAmount: {
+    color: colors.danger,
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  paymentSummaryMeta: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
   receiptCard: {
     backgroundColor: colors.surface,
     borderRadius: 18,
@@ -1440,6 +1520,16 @@ const makeStyles = (colors: ThemeColors) =>
   notesInput: {
     minHeight: 70,
     textAlignVertical: 'top',
+  },
+  addNoteLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+  },
+  addNoteLinkText: {
+    color: colors.textMuted,
+    fontSize: 14,
   },
   modalActions: {
     gap: 8,

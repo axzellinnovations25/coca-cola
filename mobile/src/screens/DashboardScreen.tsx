@@ -1,7 +1,6 @@
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   NativeModules,
@@ -11,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  Vibration,
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -18,7 +18,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import ThermalPrinterModule from 'react-native-thermal-printer';
 import { apiFetch } from '../api/api';
+import { DashboardSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+
+const formatRelativeDate = (dateStr: string) => {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return date.toLocaleDateString('en', { weekday: 'short' });
+  return date.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+};
 
 interface DashboardStats {
   total_orders: number;
@@ -131,6 +143,8 @@ const PressableCard = ({ children, style, onPress }: any) => {
   const handlePressIn = () => {
     if (Platform.OS === 'ios') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } else if (Platform.OS === 'android') {
+      Vibration.vibrate(8);
     }
     Animated.spring(scaleAnim, {
       toValue: 0.97,
@@ -163,12 +177,15 @@ const PressableCard = ({ children, style, onPress }: any) => {
 export default function DashboardScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const navigation = useNavigation<any>();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [recentCollections, setRecentCollections] = useState<RecentCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const hasLoadedOnce = useRef(false);
+  const lastFetchedAt = useRef(0);
   const [printingTest, setPrintingTest] = useState(false);
   const [printTestStatus, setPrintTestStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
@@ -313,9 +330,9 @@ export default function DashboardScreen() {
     }
   };
 
-  const fetchDashboardData = useCallback(async (isRefresh = false) => {
+  const fetchDashboardData = useCallback(async (isRefresh = false, silent = false) => {
     try {
-      if (!isRefresh) setLoading(true);
+      if (!isRefresh && !silent) setLoading(true);
       setError('');
 
       const [ordersData, collectionsData, shopsData] = await Promise.all([
@@ -393,17 +410,20 @@ export default function DashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      fetchDashboardData();
+      const now = Date.now();
+      if (!hasLoadedOnce.current) {
+        hasLoadedOnce.current = true;
+        lastFetchedAt.current = now;
+        fetchDashboardData();
+      } else if (now - lastFetchedAt.current > 30_000) {
+        lastFetchedAt.current = now;
+        fetchDashboardData(false, true); // silent background refresh, no skeleton
+      }
     }, [fetchDashboardData]),
   );
 
   if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.accent} size="large" />
-        <Text style={styles.centerText}>Loading dashboard...</Text>
-      </View>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (error) {
@@ -488,17 +508,17 @@ export default function DashboardScreen() {
           <Text style={styles.sectionCaption}>All time</Text>
         </View>
         <View style={styles.statusGrid}>
-          <View style={[styles.statusCard, styles.statusPending]}>
-            <Text style={styles.statusLabel}>Pending</Text>
-            <Text style={styles.statusValue}>{stats?.pending_orders || 0}</Text>
+          <View style={[styles.statusCard, { backgroundColor: colors.warningSurface }]}>
+            <Text style={[styles.statusLabel, { color: colors.warning }]}>Pending</Text>
+            <Text style={[styles.statusValue, { color: colors.warning }]}>{stats?.pending_orders || 0}</Text>
           </View>
-          <View style={[styles.statusCard, styles.statusApproved]}>
-            <Text style={styles.statusLabel}>Approved</Text>
-            <Text style={styles.statusValue}>{stats?.approved_orders || 0}</Text>
+          <View style={[styles.statusCard, { backgroundColor: colors.successSurface }]}>
+            <Text style={[styles.statusLabel, { color: colors.success }]}>Approved</Text>
+            <Text style={[styles.statusValue, { color: colors.success }]}>{stats?.approved_orders || 0}</Text>
           </View>
-          <View style={[styles.statusCard, styles.statusRejected]}>
-            <Text style={styles.statusLabel}>Rejected</Text>
-            <Text style={styles.statusValue}>{stats?.rejected_orders || 0}</Text>
+          <View style={[styles.statusCard, { backgroundColor: colors.dangerSurface }]}>
+            <Text style={[styles.statusLabel, { color: colors.danger }]}>Rejected</Text>
+            <Text style={[styles.statusValue, { color: colors.danger }]}>{stats?.rejected_orders || 0}</Text>
           </View>
         </View>
       </AnimatedCard>
@@ -535,17 +555,31 @@ export default function DashboardScreen() {
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentOrders.length ? (
-          recentOrders.map((order, index) => (
-            <PressableCard key={order.id} style={styles.listRow}>
-              <View style={styles.listText}>
-                <Text style={styles.listTitle}>{order.shop_name}</Text>
-                <Text style={styles.listCaption}>{formatCurrency(order.total)}</Text>
-              </View>
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>{order.status}</Text>
-              </View>
-            </PressableCard>
-          ))
+          recentOrders.map((order) => {
+            const badgeColors = order.status === 'approved'
+              ? { bg: colors.success + '22', text: colors.success }
+              : order.status === 'rejected'
+              ? { bg: colors.danger + '22', text: colors.danger }
+              : { bg: colors.warning + '22', text: colors.warning };
+            return (
+              <PressableCard
+                key={order.id}
+                style={styles.listRow}
+                onPress={() => navigation.navigate('MoreStack', { screen: 'My Orders' })}
+              >
+                <View style={styles.listText}>
+                  <Text style={styles.listTitle}>{order.shop_name}</Text>
+                  <Text style={styles.listCaption}>{formatCurrency(order.total)}</Text>
+                </View>
+                <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  <View style={[styles.statusBadge, { backgroundColor: badgeColors.bg }]}>
+                    <Text style={[styles.statusBadgeText, { color: badgeColors.text }]}>{order.status}</Text>
+                  </View>
+                  <Text style={styles.dateText}>{formatRelativeDate(order.created_at)}</Text>
+                </View>
+              </PressableCard>
+            );
+          })
         ) : (
           <Text style={styles.emptyText}>No recent orders</Text>
         )}
@@ -558,15 +592,22 @@ export default function DashboardScreen() {
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentCollections.length ? (
-          recentCollections.map((collection, index) => (
-            <PressableCard key={collection.payment_id} style={styles.listRow}>
+          recentCollections.map((collection) => (
+            <PressableCard
+              key={collection.payment_id}
+              style={styles.listRow}
+              onPress={() => navigation.navigate('MoreStack', { screen: 'My Collection' })}
+            >
               <View style={styles.listText}>
                 <Text style={styles.listTitle}>{collection.shop_name}</Text>
                 <Text style={styles.listCaption}>{formatCurrency(collection.amount)}</Text>
               </View>
-              <Text style={styles.dateText}>
-                {new Date(collection.payment_date).toLocaleDateString()}
-              </Text>
+              <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                <View style={[styles.statusBadge, { backgroundColor: colors.success + '22' }]}>
+                  <Text style={[styles.statusBadgeText, { color: colors.success }]}>Collected</Text>
+                </View>
+                <Text style={styles.dateText}>{formatRelativeDate(collection.payment_date)}</Text>
+              </View>
             </PressableCard>
           ))
         ) : (
