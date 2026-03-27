@@ -31,8 +31,8 @@ const darkColors = {
 const lightColors: ThemeColors = {
   background: '#FFF5F5',
   surface: '#FFFFFF',
-  surfaceAlt: '#FEE2E2',
-  surfaceMuted: '#FFF1F1',
+  surfaceAlt: '#F9FAFB',
+  surfaceMuted: '#F3F4F6',
   border: '#FECACA',
   borderStrong: '#FCA5A5',
   text: '#1F2937',

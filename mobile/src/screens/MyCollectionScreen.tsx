@@ -3,15 +3,16 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
-import DismissKeyboard from '../components/DismissKeyboard';
 
 interface Collection {
   payment_id: string;
@@ -125,10 +126,14 @@ export default function MyCollectionScreen() {
     );
   }
 
-  return (
-    <DismissKeyboard>
-      <View style={styles.container}>
-      <View style={styles.headerCard}>
+  const listHeader = (
+    <View style={styles.listHeader}>
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerBanner}
+      >
         <Text style={styles.title}>My Collections</Text>
         <Text style={styles.subtitle}>Track all your payment collections.</Text>
         <View style={styles.statsRow}>
@@ -149,6 +154,8 @@ export default function MyCollectionScreen() {
             <Text style={styles.statLabel}>Today</Text>
           </View>
         </View>
+      </LinearGradient>
+      <View style={styles.searchCard}>
         <TextInput
           placeholder="Search collections..."
           placeholderTextColor={colors.textMuted}
@@ -170,12 +177,18 @@ export default function MyCollectionScreen() {
           ))}
         </View>
       </View>
+    </View>
+  );
 
+  return (
+    <View style={styles.container}>
       <FlatList
         data={filteredCollections}
         keyExtractor={(item) => item.payment_id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={<Text style={styles.emptyText}>No collections found.</Text>}
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -206,7 +219,6 @@ export default function MyCollectionScreen() {
         )}
       />
     </View>
-    </DismissKeyboard>
   );
 }
 
@@ -249,20 +261,39 @@ const makeStyles = (colors: ThemeColors) =>
     color: colors.background,
     fontWeight: '700',
   },
-  headerCard: {
+  listHeader: {
+    marginHorizontal: -16,
+    marginBottom: 4,
+  },
+  headerBanner: {
     padding: 20,
+    paddingBottom: 32,
+    gap: 14,
+  },
+  searchCard: {
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    marginHorizontal: 16,
+    marginTop: -18,
+    borderRadius: 20,
+    padding: 16,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    zIndex: 1,
   },
   title: {
-    color: colors.text,
-    fontSize: 20,
+    color: '#FFFFFF',
+    fontSize: 24,
     fontWeight: '800',
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   subtitle: {
-    color: colors.textMuted,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
   },
   statsRow: {
     flexDirection: 'row',
@@ -271,29 +302,31 @@ const makeStyles = (colors: ThemeColors) =>
   },
   statBox: {
     flexBasis: '48%',
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
+    borderColor: 'rgba(255,255,255,0.25)',
   },
   statValue: {
-    color: colors.text,
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 22,
+    letterSpacing: -0.3,
   },
   statLabel: {
-    color: colors.textSubtle,
-    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 11,
+    fontWeight: '600',
     marginTop: 4,
   },
   input: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
+    fontSize: 15,
   },
   filterRow: {
     flexDirection: 'row',
@@ -301,27 +334,27 @@ const makeStyles = (colors: ThemeColors) =>
     gap: 8,
   },
   filterPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
   },
   filterPillActive: {
     backgroundColor: colors.accent,
-    borderColor: colors.accent,
   },
   filterText: {
     color: colors.textSubtle,
     textTransform: 'capitalize',
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '600',
   },
   filterTextActive: {
-    color: colors.background,
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   list: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
     gap: 12,
   },
   emptyText: {
@@ -331,11 +364,14 @@ const makeStyles = (colors: ThemeColors) =>
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 10,
+    borderRadius: 20,
+    padding: 18,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   cardRow: {
     flexDirection: 'row',
@@ -348,41 +384,50 @@ const makeStyles = (colors: ThemeColors) =>
   cardTitle: {
     color: colors.text,
     fontWeight: '700',
+    fontSize: 15,
   },
   cardSubtitle: {
     color: colors.textMuted,
     marginTop: 2,
+    fontSize: 13,
   },
   cardAmount: {
     color: colors.success,
-    fontWeight: '700',
+    fontWeight: '800',
+    fontSize: 16,
+    letterSpacing: -0.3,
   },
   cardMeta: {
     color: colors.textMuted,
     fontSize: 12,
+    fontWeight: '500',
   },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   progressBar: {
     flex: 1,
-    height: 6,
-    backgroundColor: colors.border,
+    height: 8,
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 999,
   },
   progressFill: {
-    height: 6,
+    height: 8,
     backgroundColor: colors.accent,
     borderRadius: 999,
   },
   progressText: {
     color: colors.textSubtle,
     fontSize: 12,
+    fontWeight: '700',
+    minWidth: 36,
+    textAlign: 'right',
   },
   noteText: {
     color: colors.textMuted,
     fontSize: 12,
+    fontStyle: 'italic',
   },
 });

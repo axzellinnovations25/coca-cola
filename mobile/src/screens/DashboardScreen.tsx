@@ -21,6 +21,13 @@ import { apiFetch } from '../api/api';
 import { DashboardSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
+const getTimeGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
+};
+
 const formatRelativeDate = (dateStr: string) => {
   const date = new Date(dateStr);
   const now = new Date();
@@ -458,24 +465,32 @@ export default function DashboardScreen() {
         end={{ x: 1, y: 1 }}
         style={styles.headerGradient}
       >
-        <AnimatedCard delay={0} style={styles.headerCard}>
+        <AnimatedCard delay={0} style={styles.headerContent}>
           <View style={styles.headerTopRow}>
-            <Text style={styles.headerTitle}>Dashboard</Text>
+            <View>
+              <Text style={styles.headerGreeting}>{getTimeGreeting()}</Text>
+              <Text style={styles.headerTitle}>Dashboard</Text>
+            </View>
             <View style={styles.datePill}>
-              <Text style={styles.datePillText}>{new Date().toLocaleDateString()}</Text>
+              <Text style={styles.datePillText}>
+                {new Date().toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' })}
+              </Text>
             </View>
           </View>
-          <Text style={styles.headerSubtitle}>Welcome back! Here's your live summary.</Text>
           <View style={styles.headerStatsRow}>
             <View style={styles.headerStat}>
-              <Text style={styles.headerStatTag}>TODAY</Text>
               <Text style={styles.headerStatValue}>{stats?.today_orders || 0}</Text>
-              <Text style={styles.headerStatLabel}>Orders</Text>
+              <Text style={styles.headerStatLabel}>Today's Orders</Text>
             </View>
+            <View style={styles.headerStatSep} />
             <View style={styles.headerStat}>
-              <Text style={styles.headerStatTag}>TODAY</Text>
               <Text style={styles.headerStatValue}>{stats?.today_collections || 0}</Text>
               <Text style={styles.headerStatLabel}>Collections</Text>
+            </View>
+            <View style={styles.headerStatSep} />
+            <View style={styles.headerStat}>
+              <Text style={styles.headerStatValue}>{stats?.shop_count || 0}</Text>
+              <Text style={styles.headerStatLabel}>Shops</Text>
             </View>
           </View>
         </AnimatedCard>
@@ -504,7 +519,10 @@ export default function DashboardScreen() {
       {/* Order Status Section */}
       <AnimatedCard delay={300} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Order Status</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionAccentBar, { backgroundColor: colors.warning }]} />
+            <Text style={styles.sectionTitle}>Order Status</Text>
+          </View>
           <Text style={styles.sectionCaption}>All time</Text>
         </View>
         <View style={styles.statusGrid}>
@@ -526,7 +544,10 @@ export default function DashboardScreen() {
       {/* Printer Test Section */}
       <AnimatedCard delay={325} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Printer</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionAccentBar, { backgroundColor: colors.textMuted }]} />
+            <Text style={styles.sectionTitle}>Printer</Text>
+          </View>
           <Text style={styles.sectionCaption}>Quick check</Text>
         </View>
         <TouchableOpacity
@@ -551,7 +572,10 @@ export default function DashboardScreen() {
       {/* Recent Orders Section */}
       <AnimatedCard delay={350} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Orders</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionAccentBar, { backgroundColor: colors.accent }]} />
+            <Text style={styles.sectionTitle}>Recent Orders</Text>
+          </View>
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentOrders.length ? (
@@ -567,11 +591,16 @@ export default function DashboardScreen() {
                 style={styles.listRow}
                 onPress={() => navigation.navigate('MoreStack', { screen: 'My Orders' })}
               >
+                <View style={[styles.shopAvatar, { backgroundColor: badgeColors.bg }]}>
+                  <Text style={[styles.shopAvatarText, { color: badgeColors.text }]}>
+                    {order.shop_name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
                 <View style={styles.listText}>
                   <Text style={styles.listTitle}>{order.shop_name}</Text>
                   <Text style={styles.listCaption}>{formatCurrency(order.total)}</Text>
                 </View>
-                <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
                   <View style={[styles.statusBadge, { backgroundColor: badgeColors.bg }]}>
                     <Text style={[styles.statusBadgeText, { color: badgeColors.text }]}>{order.status}</Text>
                   </View>
@@ -588,7 +617,10 @@ export default function DashboardScreen() {
       {/* Recent Collections Section */}
       <AnimatedCard delay={400} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent Collections</Text>
+          <View style={styles.sectionTitleRow}>
+            <View style={[styles.sectionAccentBar, { backgroundColor: colors.success }]} />
+            <Text style={styles.sectionTitle}>Recent Collections</Text>
+          </View>
           <Text style={styles.sectionCaption}>Last 5</Text>
         </View>
         {recentCollections.length ? (
@@ -598,11 +630,16 @@ export default function DashboardScreen() {
               style={styles.listRow}
               onPress={() => navigation.navigate('MoreStack', { screen: 'My Collection' })}
             >
+              <View style={[styles.shopAvatar, { backgroundColor: colors.success + '22' }]}>
+                <Text style={[styles.shopAvatarText, { color: colors.success }]}>
+                  {collection.shop_name.charAt(0).toUpperCase()}
+                </Text>
+              </View>
               <View style={styles.listText}>
                 <Text style={styles.listTitle}>{collection.shop_name}</Text>
                 <Text style={styles.listCaption}>{formatCurrency(collection.amount)}</Text>
               </View>
-              <View style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+              <View style={{ alignItems: 'flex-end', gap: 4 }}>
                 <View style={[styles.statusBadge, { backgroundColor: colors.success + '22' }]}>
                   <Text style={[styles.statusBadgeText, { color: colors.success }]}>Collected</Text>
                 </View>
@@ -658,91 +695,95 @@ const makeStyles = (colors: ThemeColors) =>
     backgroundColor: colors.accent,
     paddingHorizontal: 24,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },
   retryText: {
-    color: colors.background,
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 16,
   },
+  // ── Header ──────────────────────────────────────────────
   headerGradient: {
-    borderRadius: 24,
-    padding: 2,
-    marginBottom: 14,
+    borderRadius: 26,
+    overflow: 'hidden',
+    marginBottom: 2,
   },
-  headerCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: 22,
-    padding: 20,
-    borderWidth: 0,
-    gap: 12,
+  headerContent: {
+    padding: 22,
+    paddingBottom: 20,
+    gap: 18,
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
+    alignItems: 'flex-start',
+  },
+  headerGreeting: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 5,
   },
   headerTitle: {
-    color: '#1F2937',
-    fontSize: 32,
+    color: '#FFFFFF',
+    fontSize: 34,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
-  headerSubtitle: {
-    color: '#4B5563',
-    lineHeight: 20,
-    fontSize: 15,
-  },
   datePill: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderWidth: 0,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.28)',
+    marginTop: 6,
   },
   datePillText: {
-    color: '#6B7280',
+    color: '#FFFFFF',
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: 12,
+    letterSpacing: 0.2,
   },
   headerStatsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 12,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   headerStat: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 0,
+    alignItems: 'center',
   },
-  headerStatTag: {
-    color: '#9CA3AF',
-    fontSize: 10,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    fontWeight: '700',
+  headerStatSep: {
+    width: 1,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    marginVertical: 4,
   },
   headerStatValue: {
-    color: colors.gradientStart,
+    color: '#FFFFFF',
     fontSize: 28,
     fontWeight: '800',
-    marginTop: 4,
     letterSpacing: -0.5,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   headerStatLabel: {
-    color: '#6B7280',
-    marginTop: 2,
-    fontSize: 13,
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
     fontWeight: '500',
+    marginTop: 4,
+    textAlign: 'center',
   },
+  // ── Stats Grid ───────────────────────────────────────────
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -753,59 +794,54 @@ const makeStyles = (colors: ThemeColors) =>
     backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 18,
-    borderWidth: 0,
-    minHeight: 100,
+    minHeight: 110,
     justifyContent: 'space-between',
     shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
   },
   statCardBlue: {
-    backgroundColor: colors.cardBlue + '15',
-    borderLeftWidth: 4,
-    borderLeftColor: colors.cardBlue,
+    borderTopWidth: 3,
+    borderTopColor: colors.cardBlue,
   },
   statCardIndigo: {
-    backgroundColor: colors.cardPurple + '15',
-    borderLeftWidth: 4,
-    borderLeftColor: colors.cardPurple,
+    borderTopWidth: 3,
+    borderTopColor: colors.cardPurple,
   },
   statCardAmber: {
-    backgroundColor: colors.cardAmber + '15',
-    borderLeftWidth: 4,
-    borderLeftColor: colors.cardAmber,
+    borderTopWidth: 3,
+    borderTopColor: colors.cardAmber,
   },
   statCardGreen: {
-    backgroundColor: colors.cardGreen + '15',
-    borderLeftWidth: 4,
-    borderLeftColor: colors.cardGreen,
+    borderTopWidth: 3,
+    borderTopColor: colors.cardGreen,
   },
   statLabel: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 10,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     fontWeight: '700',
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   statValue: {
     color: colors.text,
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '800',
-    marginTop: 8,
     letterSpacing: -0.5,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
+  // ── Section Cards ────────────────────────────────────────
   sectionCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
     padding: 18,
-    borderWidth: 0,
-    gap: 14,
+    paddingTop: 16,
+    gap: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.05,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
@@ -814,38 +850,48 @@ const makeStyles = (colors: ThemeColors) =>
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 2,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  sectionAccentBar: {
+    width: 4,
+    height: 18,
+    borderRadius: 2,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '700',
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   sectionCaption: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
+    backgroundColor: colors.surfaceMuted,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
+  // ── Order Status ─────────────────────────────────────────
   statusGrid: {
     flexDirection: 'row',
     gap: 10,
   },
   statusCard: {
     flex: 1,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderWidth: 0,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    minHeight: 70,
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    minHeight: 80,
   },
   statusPending: {
     backgroundColor: colors.surfaceMuted,
@@ -858,80 +904,83 @@ const makeStyles = (colors: ThemeColors) =>
   },
   statusLabel: {
     color: colors.textSubtle,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
+    marginTop: 5,
+    textAlign: 'center',
   },
   statusValue: {
     color: colors.text,
     fontWeight: '800',
-    fontSize: 24,
-    marginTop: 6,
+    fontSize: 26,
     letterSpacing: -0.5,
   },
+  // ── List Rows ────────────────────────────────────────────
   listRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 0,
-    minHeight: 68,
-    shadowColor: '#000',
-    shadowOpacity: 0.02,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    gap: 12,
+    minHeight: 64,
+  },
+  shopAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  shopAvatarText: {
+    fontSize: 17,
+    fontWeight: '800',
   },
   listText: {
     flex: 1,
-    marginRight: 12,
   },
   listTitle: {
     color: colors.text,
     fontWeight: '700',
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 15,
+    marginBottom: 3,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
   },
   listCaption: {
     color: colors.textMuted,
-    marginTop: 2,
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 999,
     backgroundColor: colors.accent + '20',
-    borderWidth: 0,
-    minHeight: 30,
-    justifyContent: 'center',
-    shadowColor: colors.accent,
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
   },
   statusBadgeText: {
     color: colors.accent,
     fontWeight: '700',
     textTransform: 'capitalize',
-    fontSize: 13,
+    fontSize: 12,
   },
   dateText: {
     color: colors.textMuted,
-    fontWeight: '600',
-    fontSize: 13,
+    fontWeight: '500',
+    fontSize: 12,
+    marginTop: 3,
   },
   emptyText: {
     color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
-    paddingVertical: 16,
+    paddingVertical: 20,
   },
+  // ── Printer ──────────────────────────────────────────────
   printTestButton: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: 14,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -941,13 +990,15 @@ const makeStyles = (colors: ThemeColors) =>
     opacity: 0.5,
   },
   printTestButtonText: {
-    color: colors.background,
+    color: '#FFFFFF',
     fontWeight: '700',
     fontSize: 15,
+    letterSpacing: 0.3,
   },
   printTestStatusText: {
     fontSize: 13,
     fontWeight: '600',
+    marginTop: 2,
   },
   printTestStatusSuccess: {
     color: colors.success,

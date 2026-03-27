@@ -2,6 +2,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
+  Platform,
   StyleSheet,
   Switch,
   Text,
@@ -9,10 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
-import DismissKeyboard from '../components/DismissKeyboard';
 
 interface Shop {
   id: string;
@@ -81,12 +82,18 @@ export default function MyShopsScreen() {
     );
   }
 
-  return (
-    <DismissKeyboard>
-      <View style={styles.container}>
-      <View style={styles.headerCard}>
+  const listHeader = (
+    <View style={styles.listHeader}>
+      <LinearGradient
+        colors={[colors.gradientStart, colors.gradientEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerBanner}
+      >
         <Text style={styles.title}>My Shops ({shops.length})</Text>
         <Text style={styles.subtitle}>Manage assigned shops and outstanding balances.</Text>
+      </LinearGradient>
+      <View style={styles.searchCard}>
         <TextInput
           placeholder="Search by name, address, or phone"
           placeholderTextColor={colors.textMuted}
@@ -104,12 +111,18 @@ export default function MyShopsScreen() {
           />
         </View>
       </View>
+    </View>
+  );
 
+  return (
+    <View style={styles.container}>
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListHeaderComponent={listHeader}
         ListEmptyComponent={<Text style={styles.emptyText}>No shops found.</Text>}
         renderItem={({ item }) => (
           <View style={styles.card}>
@@ -195,7 +208,6 @@ export default function MyShopsScreen() {
         )}
       />
     </View>
-    </DismissKeyboard>
   );
 }
 
@@ -238,29 +250,47 @@ const makeStyles = (colors: ThemeColors) =>
     color: colors.background,
     fontWeight: '700',
   },
-  headerCard: {
+  listHeader: {
+    marginHorizontal: -16,
+    marginBottom: 4,
+  },
+  headerBanner: {
     padding: 20,
+    paddingBottom: 32,
+    gap: 6,
+  },
+  searchCard: {
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    marginHorizontal: 16,
+    marginTop: -18,
+    borderRadius: 20,
+    padding: 16,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+    zIndex: 1,
   },
   title: {
-    color: colors.text,
-    fontSize: 20,
+    color: '#FFFFFF',
+    fontSize: 24,
     fontWeight: '800',
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   subtitle: {
-    color: colors.textMuted,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
   },
   input: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
+    fontSize: 15,
   },
   filterRow: {
     flexDirection: 'row',
@@ -270,9 +300,11 @@ const makeStyles = (colors: ThemeColors) =>
   filterLabel: {
     color: colors.textSubtle,
     fontWeight: '600',
+    fontSize: 14,
   },
   list: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
     gap: 12,
   },
   emptyText: {
@@ -282,11 +314,14 @@ const makeStyles = (colors: ThemeColors) =>
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 12,
+    borderRadius: 20,
+    padding: 18,
+    gap: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   cardRow: {
     flexDirection: 'row',
@@ -326,18 +361,19 @@ const makeStyles = (colors: ThemeColors) =>
     gap: 4,
   },
   progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.border,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.surfaceMuted,
     overflow: 'hidden',
   },
   progressFill: {
-    height: 6,
-    borderRadius: 3,
+    height: 8,
+    borderRadius: 4,
   },
   progressLabel: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   statRow: {
     flexDirection: 'row',
@@ -346,41 +382,43 @@ const makeStyles = (colors: ThemeColors) =>
   statBox: {
     flex: 1,
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 14,
   },
   statLabel: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   statValue: {
     color: colors.text,
-    fontWeight: '700',
-    marginTop: 4,
+    fontWeight: '800',
+    fontSize: 18,
+    marginTop: 5,
+    letterSpacing: -0.3,
   },
   detailsButton: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 12,
-    paddingVertical: 10,
+    backgroundColor: colors.accent + '12',
+    borderRadius: 14,
+    paddingVertical: 12,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
   },
   detailsButtonText: {
     color: colors.accent,
     fontWeight: '700',
+    fontSize: 14,
   },
   detailsBox: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 6,
+    borderRadius: 14,
+    padding: 14,
+    gap: 8,
   },
   detailsText: {
     color: colors.textSubtle,
+    fontSize: 13,
+    lineHeight: 20,
   },
 });

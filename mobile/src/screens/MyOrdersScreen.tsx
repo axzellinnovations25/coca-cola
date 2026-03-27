@@ -5,6 +5,7 @@ import {
   FlatList,
   Keyboard,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +13,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
@@ -412,9 +414,16 @@ export default function MyOrdersScreen() {
           ListEmptyComponent={<Text style={styles.emptyText}>No orders found.</Text>}
           ListHeaderComponent={
             <View>
-              <View style={styles.headerCard}>
+              <LinearGradient
+                colors={[colors.gradientStart, colors.gradientEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.headerBanner}
+              >
                 <Text style={styles.title}>My Orders</Text>
                 <Text style={styles.subtitle}>Track order status and send receipts.</Text>
+              </LinearGradient>
+              <View style={styles.searchCard}>
                 <TextInput
                   placeholder="Search by shop, status, or amount"
                   placeholderTextColor={colors.textMuted}
@@ -747,29 +756,37 @@ const makeStyles = (colors: ThemeColors) =>
     color: colors.background,
     fontWeight: '700',
   },
-  headerCard: {
+  headerBanner: {
     padding: 20,
+    paddingBottom: 14,
+    gap: 6,
+    borderRadius: 0,
+  },
+  searchCard: {
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    padding: 16,
     gap: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   title: {
-    color: colors.text,
-    fontSize: 20,
+    color: '#FFFFFF',
+    fontSize: 24,
     fontWeight: '800',
+    letterSpacing: -0.5,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   subtitle: {
-    color: colors.textMuted,
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
   },
   input: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
     color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
+    fontSize: 15,
   },
   placeholderText: {
     color: colors.textMuted,
@@ -784,46 +801,48 @@ const makeStyles = (colors: ThemeColors) =>
     gap: 8,
   },
   filterPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
   },
   filterPillActive: {
     backgroundColor: colors.accent,
-    borderColor: colors.accent,
   },
   filterText: {
     color: colors.textSubtle,
     textTransform: 'capitalize',
-    fontSize: 12,
+    fontSize: 13,
+    fontWeight: '600',
   },
   filterTextActive: {
-    color: colors.background,
+    color: '#FFFFFF',
     fontWeight: '700',
   },
   pendingButton: {
     backgroundColor: colors.warningSurface,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: colors.warning,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
   },
   pendingButtonText: {
     color: colors.warning,
     fontWeight: '700',
+    fontSize: 14,
   },
   pendingCard: {
     marginHorizontal: 20,
-    marginTop: 12,
+    marginTop: 4,
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 20,
     padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
     gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   pendingTitle: {
     color: colors.warning,
@@ -839,20 +858,16 @@ const makeStyles = (colors: ThemeColors) =>
     gap: 8,
   },
   listActionButton: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   listActionButtonAlt: {
     backgroundColor: colors.warningSurface,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: colors.warning,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   listActionText: {
     color: colors.text,
@@ -863,7 +878,9 @@ const makeStyles = (colors: ThemeColors) =>
     fontWeight: '700',
   },
   list: {
-    padding: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 20,
     gap: 12,
   },
   productList: {
@@ -889,11 +906,14 @@ const makeStyles = (colors: ThemeColors) =>
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: 20,
+    padding: 18,
     gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
   cardRow: {
     flexDirection: 'row',
@@ -927,21 +947,17 @@ const makeStyles = (colors: ThemeColors) =>
   },
   cardActionButton: {
     flex: 1,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 10,
-    paddingVertical: 8,
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
   },
   cardActionButtonAlt: {
     flex: 1,
     backgroundColor: colors.warningSurface,
-    borderRadius: 10,
-    paddingVertical: 8,
+    borderRadius: 12,
+    paddingVertical: 9,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.warning,
   },
   cardActionText: {
     color: colors.text,
@@ -1128,9 +1144,7 @@ const makeStyles = (colors: ThemeColors) =>
     alignItems: 'center',
   },
   actionSecondary: {
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.surfaceMuted,
   },
   actionText: {
     color: colors.text,
@@ -1139,5 +1153,33 @@ const makeStyles = (colors: ThemeColors) =>
   actionTextOnAccent: {
     color: colors.background,
     fontWeight: '700',
+  },
+  actionPrimary: {
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center' as const,
+  },
+  listRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    paddingVertical: 12,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  listText: {
+    flex: 1,
+  },
+  listTitle: {
+    color: colors.text,
+    fontWeight: '700' as const,
+    fontSize: 15,
+  },
+  listCaption: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: 3,
   },
 });
