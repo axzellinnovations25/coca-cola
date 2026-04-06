@@ -371,7 +371,6 @@ export default function OrderManagement() {
       );
       // Force a fresh fetch so the list reflects the new status without manual refresh
       await fetchOrders();
-      triggerRefresh();
       setShowRejectionModal(false);
       setOrderToReject(null);
       setRejectionReason('');
@@ -566,335 +565,266 @@ export default function OrderManagement() {
   };
 
   if (loading) {
-    return <div className="text-gray-400 text-center py-8">Loading orders...</div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex items-center gap-3 text-gray-500">
+          <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm font-medium">Loading orders...</span>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="text-red-500 text-center py-8">{error}</div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p className="text-red-600 font-medium text-sm">{error}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
-      {/* Inject CSS for animations */}
       <style dangerouslySetInnerHTML={{ __html: slideInAnimation }} />
-      
-      {/* Success Notification */}
+
+      {/* Toast Notification */}
       {showSuccessNotification && (
-        <div className="fixed top-4 right-4 z-50 bg-green-50 border border-green-200 rounded-lg p-4 shadow-lg max-w-md animate-slide-in">
-          <div className="flex items-center gap-3">
-            <div className="flex-shrink-0">
-              <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-green-800">{successMessage}</p>
-            </div>
-            <button
-              onClick={() => {
-                setShowSuccessNotification(false);
-                setSuccessMessage('');
-              }}
-              className="flex-shrink-0 text-green-400 hover:text-green-600"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        <div className="fixed top-5 right-5 z-50 flex items-start gap-3 bg-white border border-green-200 shadow-lg rounded-xl px-4 py-3 max-w-sm animate-slide-in">
+          <div className="flex-shrink-0 w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
           </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">Success</p>
+            <p className="text-xs text-gray-500 mt-0.5">{successMessage}</p>
+          </div>
+          <button onClick={() => { setShowSuccessNotification(false); setSuccessMessage(''); }} className="text-gray-300 hover:text-gray-500 flex-shrink-0">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
       )}
 
-      {/* Page Title */}
-      <div className="flex items-center gap-3">
-        <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-        </svg>
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Order Management</h1>
-          <p className="text-gray-600 text-sm">Review and approve orders from sales representatives</p>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-blue-600 text-sm font-medium mb-1">
-                {startDate || endDate ? 'Filtered Orders' : 'Total Orders'}
-              </p>
-              <p className="text-xl font-bold text-blue-800">{filteredOrders?.length || 0}</p>
-              {(startDate || endDate) && (
-                <p className="text-xs text-blue-600 mt-1">
-                  of {orders?.length || 0} total
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-yellow-50 rounded-lg border border-yellow-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-yellow-700 text-sm font-medium mb-1">Pending Orders</p>
-              <p className="text-xl font-bold text-yellow-800">
-                {filteredOrders?.filter(order => order.status === 'pending').length || 0}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-green-50 rounded-lg border border-green-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-green-700 text-sm font-medium mb-1">Approved Orders</p>
-              <p className="text-xl font-bold text-green-800">
-                {filteredOrders?.filter(order => order.status === 'approved').length || 0}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-red-50 rounded-lg border border-red-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-red-700 text-sm font-medium mb-1">Rejected Orders</p>
-              <p className="text-xl font-bold text-red-800">
-                {filteredOrders?.filter(order => order.status === 'rejected').length || 0}
-              </p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-purple-50 rounded-lg border border-purple-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-purple-700 text-sm font-medium mb-1">
-                {startDate || endDate ? 'Filtered Value' : 'Total Value'}
-              </p>
-              <p className="text-xl font-bold text-purple-800">
-                {(filteredOrders || []).reduce((sum, order) => sum + Number(order.total || 0), 0).toFixed(0)} LKR
-              </p>
-              {(startDate || endDate) && (
-                <p className="text-xs text-purple-600 mt-1">
-                  of {(orders || []).reduce((sum, order) => sum + Number(order.total || 0), 0).toFixed(0)} LKR total
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Order Management Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Order Approval System</h2>
-            <p className="text-gray-600 text-sm">Review and approve pending orders from sales representatives</p>
-          </div>
-          <button
-            onClick={exportData}
-            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors flex items-center gap-2"
-          >
-            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
             </svg>
-            Export CSV
-          </button>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Order Management</h1>
+            <p className="text-sm text-gray-500">Review and approve orders from sales representatives</p>
+          </div>
         </div>
+        <button
+          onClick={exportData}
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          Export CSV
+        </button>
+      </div>
 
-        {/* Search and Filter Bar */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-6">
-          <div className="flex-1">
-            <div className="relative">
-              <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search by shop, representative, or amount..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-              />
-            </div>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {[
+          {
+            label: startDate || endDate ? 'Filtered Orders' : 'Total Orders',
+            value: filteredOrders?.length || 0,
+            sub: (startDate || endDate) ? `of ${orders?.length || 0} total` : null,
+            color: 'blue',
+          },
+          {
+            label: 'Pending',
+            value: filteredOrders?.filter(o => o.status === 'pending').length || 0,
+            color: 'amber',
+          },
+          {
+            label: 'Approved',
+            value: filteredOrders?.filter(o => o.status === 'approved').length || 0,
+            color: 'green',
+          },
+          {
+            label: 'Rejected',
+            value: filteredOrders?.filter(o => o.status === 'rejected').length || 0,
+            color: 'red',
+          },
+          {
+            label: startDate || endDate ? 'Filtered Value' : 'Total Value',
+            value: `${(filteredOrders || []).reduce((s, o) => s + Number(o.total || 0), 0).toFixed(0)} LKR`,
+            sub: (startDate || endDate) ? `of ${(orders || []).reduce((s, o) => s + Number(o.total || 0), 0).toFixed(0)} LKR` : null,
+            color: 'violet',
+          },
+        ].map(({ label, value, sub, color }) => (
+          <div key={label} className={`bg-${color}-50 border border-${color}-100 rounded-xl p-4`}>
+            <p className={`text-xs font-semibold text-${color}-600 uppercase tracking-wide mb-1`}>{label}</p>
+            <p className={`text-2xl font-bold text-${color}-800 leading-tight`}>{value}</p>
+            {sub && <p className={`text-xs text-${color}-500 mt-0.5`}>{sub}</p>}
+          </div>
+        ))}
+      </div>
+
+      {/* Table Card */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+        {/* Toolbar */}
+        <div className="flex flex-col lg:flex-row gap-3 p-5 border-b border-gray-100">
+          <div className="relative flex-1">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search shop, rep, or amount…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent"
+            />
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300"
           >
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
           </select>
-          
-          {/* Date Filter Toggle Button */}
           <button
             onClick={() => setShowDateFilter(!showDateFilter)}
-            className={`px-4 py-2 border rounded-lg font-medium transition-colors flex items-center gap-2 text-sm ${
+            className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm font-medium transition-colors ${
               showDateFilter || startDate || endDate
-                ? 'bg-purple-100 text-purple-700 border-purple-300'
-                : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                ? 'bg-violet-50 text-violet-700 border-violet-200'
+                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
             }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
             Date Filter
-            {(startDate || endDate) && (
-              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-            )}
+            {(startDate || endDate) && <span className="w-1.5 h-1.5 bg-violet-500 rounded-full" />}
           </button>
         </div>
 
-        {/* Date Filter Section */}
+        {/* Date Filter Panel */}
         {showDateFilter && (
-          <div className="bg-gray-50 rounded-lg p-4 mb-6 border border-gray-200">
-            <div className="flex flex-col sm:flex-row gap-4 items-end">
+          <div className="px-5 py-4 bg-gray-50 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row gap-3 items-end">
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm"
-                  max={endDate || undefined}
-                />
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">From</label>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} max={endDate || undefined}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div className="flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm"
-                  min={startDate || undefined}
-                />
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">To</label>
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate || undefined}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={clearDateFilters}
-                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors text-sm"
-                >
-                  Clear
-                </button>
-                <button
-                  onClick={() => setShowDateFilter(false)}
-                  className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg font-medium transition-colors text-sm"
-                >
-                  Apply
-                </button>
+                <button onClick={clearDateFilters} className="px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">Clear</button>
+                <button onClick={() => setShowDateFilter(false)} className="px-3 py-2 text-sm font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-lg hover:bg-violet-100 transition-colors">Apply</button>
               </div>
             </div>
             {(startDate || endDate) && (
-              <div className="mt-3 text-sm text-gray-600">
-                <span className="font-medium">Filtering by:</span>
-                {startDate && <span className="ml-2">From {new Date(startDate).toLocaleDateString()}</span>}
-                {endDate && <span className="ml-2">To {new Date(endDate).toLocaleDateString()}</span>}
-                <span className="ml-2">({filteredOrders.length} orders found)</span>
-              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {startDate && `From ${new Date(startDate).toLocaleDateString()}`}
+                {startDate && endDate && ' · '}
+                {endDate && `To ${new Date(endDate).toLocaleDateString()}`}
+                {' · '}<span className="font-semibold text-violet-600">{filteredOrders.length} orders</span>
+              </p>
             )}
           </div>
         )}
 
-        {/* Orders Table */}
-        <div className="overflow-hidden rounded-lg border border-gray-200">
+        {/* Table */}
+        <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
-              <tr className="bg-gray-50">
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Date</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Shop</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Sales Representative</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Total</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Status</th>
-                <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Actions</th>
+              <tr className="border-b border-gray-100">
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Shop</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sales Rep</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-50">
               {(paginatedOrders || []).map((order, orderIndex) => (
-                <tr key={`${order.id}-${orderIndex}`} className={`hover:bg-gray-50 transition-colors ${
-                  lastApprovedOrderId === order.id && order.status === 'approved' 
-                    ? 'bg-green-50 border-l-4 border-l-green-500' 
+                <tr key={`${order.id}-${orderIndex}`} className={`group transition-colors ${
+                  lastApprovedOrderId === order.id && order.status === 'approved'
+                    ? 'bg-green-50'
                     : lastRejectedOrderId === order.id && order.status === 'rejected'
-                    ? 'bg-red-50 border-l-4 border-l-red-500'
-                    : ''
+                    ? 'bg-red-50'
+                    : 'hover:bg-gray-50/70'
                 }`}>
-                  <td className="py-4 px-4">
-                    <div className="text-gray-900 font-medium text-sm">{new Date(order.created_at).toLocaleDateString()}</div>
-                    <div className="text-gray-500 text-xs">{new Date(order.created_at).toLocaleTimeString()}</div>
+                  <td className="py-3.5 px-5">
+                    <p className="text-sm font-medium text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                   </td>
-                  <td className="py-4 px-4">
-                    <div className="font-medium text-gray-900 text-sm">{order.shop_name}</div>
+                  <td className="py-3.5 px-5">
+                    <p className="text-sm font-semibold text-gray-900">{order.shop_name}</p>
                   </td>
-                  <td className="py-4 px-4">
-                    <div>
-                      <div className="text-gray-900 font-medium text-sm">
-                        {order.sales_rep_first_name ? `${order.sales_rep_first_name} ${order.sales_rep_last_name}` : order.sales_rep_email}
-                      </div>
-                      <div className="text-sm text-gray-500 text-xs">{order.item_count} items</div>
-                    </div>
+                  <td className="py-3.5 px-5">
+                    <p className="text-sm text-gray-800">
+                      {order.sales_rep_first_name ? `${order.sales_rep_first_name} ${order.sales_rep_last_name}` : order.sales_rep_email}
+                    </p>
+                    <p className="text-xs text-gray-400">{order.item_count} items</p>
                   </td>
-                  <td className="py-4 px-4">
-                    <div className="font-bold text-gray-900 text-sm">{Number(order.total).toFixed(2)} LKR</div>
+                  <td className="py-3.5 px-5">
+                    <p className="text-sm font-bold text-gray-900">{Number(order.total).toFixed(2)} LKR</p>
                     {lastApprovedOrderId === order.id && order.status === 'approved' && (
-                      <div className="text-xs text-green-600 font-medium mt-1">✓ Recently Approved</div>
+                      <p className="text-xs text-green-600 font-medium">Recently approved</p>
                     )}
                     {lastRejectedOrderId === order.id && order.status === 'rejected' && (
-                      <div className="text-xs text-red-600 font-medium mt-1">✗ Recently Rejected</div>
+                      <p className="text-xs text-red-600 font-medium">Recently rejected</p>
                     )}
                   </td>
-                  <td className="py-4 px-4">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
+                  <td className="py-3.5 px-5">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(order.status)}`}>
                       {getStatusText(order.status)}
                     </span>
                   </td>
-                  <td className="py-4 px-4">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleViewOrderDetails(order.id)}
-                        disabled={loadingOrderDetails}
-                        className="px-3 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded text-sm font-medium transition-colors disabled:opacity-50"
-                        title="View Order Details"
-                      >
-                        {loadingOrderDetails ? 'Loading...' : 'View'}
+                  <td className="py-3.5 px-5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button onClick={() => handleViewOrderDetails(order.id)} disabled={loadingOrderDetails}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-violet-50 text-violet-700 hover:bg-violet-100 rounded-lg transition-colors disabled:opacity-50">
+                        View
                       </button>
-                      <button
-                        onClick={() => handleEditOrder(order.id)}
-                        className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm font-medium transition-colors"
-                        title="Edit Order"
-                      >
+                      <button onClick={() => handleEditOrder(order.id)}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors">
                         Edit
                       </button>
                       {order.status === 'pending' && (
                         <>
-                          <button
-                            onClick={() => handleApproveClick(order)}
-                            className="px-3 py-1 bg-yellow-100 text-yellow-700 hover:bg-green-200 hover:text-green-700 rounded text-sm font-medium transition-colors"
-                            title="Approve Order"
-                          >
+                          <button onClick={() => handleApproveClick(order)}
+                            className="px-2.5 py-1.5 text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 rounded-lg transition-colors">
                             Approve
                           </button>
-                          <button
-                            onClick={() => handleRejectClick(order)}
-                            className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-sm font-medium transition-colors"
-                            title="Reject Order"
-                          >
+                          <button onClick={() => handleRejectClick(order)}
+                            className="px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg transition-colors">
                             Reject
                           </button>
                         </>
                       )}
                       {order.status === 'approved' && (
-                        <span className="px-3 py-1 bg-green-100 text-green-700 rounded text-sm font-medium">
-                          APPROVED
-                        </span>
+                        <span className="px-2.5 py-1 text-xs font-semibold bg-green-100 text-green-700 rounded-lg">Approved</span>
                       )}
                       {order.status === 'rejected' && (
-                        <span className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm font-medium">
-                          REJECTED
-                        </span>
+                        <span className="px-2.5 py-1 text-xs font-semibold bg-red-100 text-red-700 rounded-lg">Rejected</span>
                       )}
                     </div>
                   </td>
@@ -904,257 +834,195 @@ export default function OrderManagement() {
           </table>
         </div>
 
-        {/* Pagination Controls */}
+        {/* Empty State */}
+        {(filteredOrders || []).length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+            </div>
+            <p className="text-gray-500 font-medium text-sm">No orders found</p>
+            <p className="text-gray-400 text-xs mt-1">Try adjusting your search or filter criteria</p>
+          </div>
+        )}
+
+        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex justify-between items-center mt-6 p-4 bg-gray-50 rounded-lg">
-            <span className="text-sm text-gray-600">
-              Showing {page * ORDERS_PER_PAGE - ORDERS_PER_PAGE + 1} to {Math.min(page * ORDERS_PER_PAGE, (filteredOrders || []).length)} of {(filteredOrders || []).length} entries
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                disabled={page === 1}
-                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+          <div className="flex justify-between items-center px-5 py-4 border-t border-gray-100">
+            <p className="text-xs text-gray-500">
+              Showing <span className="font-semibold text-gray-700">{page * ORDERS_PER_PAGE - ORDERS_PER_PAGE + 1}–{Math.min(page * ORDERS_PER_PAGE, (filteredOrders || []).length)}</span> of <span className="font-semibold text-gray-700">{(filteredOrders || []).length}</span> orders
+            </p>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 Previous
               </button>
-              <span className="text-sm text-gray-700">Page {page} of {totalPages}</span>
-              <button
-                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
-              >
+              <span className="px-3 py-1.5 text-xs font-semibold text-violet-700 bg-violet-50 rounded-lg">{page} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                className="px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 Next
               </button>
             </div>
           </div>
         )}
-
-        {(filteredOrders || []).length === 0 && (
-          <div className="text-center py-8">
-            <div className="text-4xl mb-2">📭</div>
-            <div className="text-gray-400 font-medium">No orders found matching your criteria.</div>
-          </div>
-        )}
       </div>
 
-      {/* Edit Order Modal */}
+      {/* ── Edit Order Modal ── */}
       {editOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-6 max-w-3xl w-full max-h-[90vh] overflow-y-auto relative">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
-              onClick={() => {
-                setEditOrder(null);
-                setEditItems([]);
-                setEditNotes('');
-                setEditError('');
-              }}
-              aria-label="Close"
-            >
-              &times;
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Edit Order</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{editOrder.shop.name} · #{editOrder.id.slice(0, 8)}</p>
+              </div>
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
 
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Edit Order</h3>
-
-            <div className="space-y-4">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-                <div className="text-sm text-gray-600">Order</div>
-                <div className="font-semibold text-gray-900">
-                  {editOrder.shop.name} • {editOrder.id.slice(0, 8)}... • {editOrder.status}
-                </div>
+            <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Notes</label>
+                <textarea rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Add notes for this order…"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-                <textarea
-                  rows={3}
-                  value={editNotes}
-                  onChange={(e) => setEditNotes(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
-                  placeholder="Add notes for this order"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700">Order Items</label>
-                  <span className="text-sm text-gray-500">Total: {editTotal.toFixed(2)} LKR</span>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Order Items</label>
+                  <span className="text-sm font-bold text-violet-700">{editTotal.toFixed(2)} LKR</span>
                 </div>
-                <div className="space-y-3">
-                  {editItems.map((item, itemIndex) => (
-                    <div key={`${item.product_id}-${itemIndex}`} className="flex flex-col sm:flex-row sm:items-center gap-3 border border-gray-200 rounded-lg p-3">
+                <div className="space-y-2">
+                  {editItems.map((item, idx) => (
+                    <div key={`${item.product_id}-${idx}`} className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-gray-900">{item.name}</div>
-                        <div className="text-sm text-gray-500">{item.unit_price.toFixed(2)} LKR</div>
+                        <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
+                        <p className="text-xs text-gray-500">{item.unit_price.toFixed(2)} LKR each</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => {
-                            const qty = Number(e.target.value);
-                            setEditItems(prev => prev.map(i => i.product_id === item.product_id ? {
-                              ...i,
-                              quantity: qty,
-                              total: i.unit_price * qty
-                            } : i));
-                          }}
-                          className="w-24 px-2 py-1 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-black"
-                        />
-                        <button
-                          className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
-                          onClick={() => setEditItems(prev => prev.filter(i => i.product_id !== item.product_id))}
-                        >
-                          Remove
-                        </button>
-                      </div>
+                      <input type="number" min={1} value={item.quantity}
+                        onChange={(e) => { const qty = Number(e.target.value); setEditItems(prev => prev.map(i => i.product_id === item.product_id ? { ...i, quantity: qty, total: i.unit_price * qty } : i)); }}
+                        className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                      <button onClick={() => setEditItems(prev => prev.filter(i => i.product_id !== item.product_id))}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="border-t border-gray-200 pt-4">
-                <div className="text-sm font-medium text-gray-700 mb-2">Add Item</div>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <select
-                    value={newProductId}
-                    onChange={(e) => setNewProductId(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 bg-white text-gray-900"
-                  >
-                    <option value="">Select product</option>
-                    {products.map(product => (
-                      <option key={product.id} value={product.id}>
-                        {product.name} - {Number(product.unit_price).toFixed(2)} LKR
-                      </option>
-                    ))}
+              <div className="border border-dashed border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Add Product</p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select value={newProductId} onChange={(e) => setNewProductId(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300">
+                    <option value="">Select product…</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name} — {Number(p.unit_price).toFixed(2)} LKR</option>)}
                   </select>
-                  <input
-                    type="number"
-                    min={1}
-                    value={newProductQty}
-                    onChange={(e) => setNewProductQty(Number(e.target.value))}
-                    className="w-32 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-black"
-                  />
-                  <button
-                    className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors"
-                    onClick={addEditItem}
-                  >
+                  <input type="number" min={1} value={newProductQty} onChange={(e) => setNewProductQty(Number(e.target.value))}
+                    className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
+                  <button onClick={addEditItem}
+                    className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-semibold transition-colors">
                     Add
                   </button>
                 </div>
               </div>
 
               {editError && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
                   {editError}
                 </div>
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-end mt-6 pt-4 border-t border-gray-200">
-              <button
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
-                onClick={() => {
-                  setEditOrder(null);
-                  setEditItems([]);
-                  setEditNotes('');
-                  setEditError('');
-                }}
-                disabled={editLoading}
-              >
+            <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-100">
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); }} disabled={editLoading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
                 Cancel
               </button>
-              <button
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors disabled:opacity-60"
-                onClick={handleSaveEdit}
-                disabled={editLoading}
-              >
-                {editLoading ? 'Saving...' : 'Save Changes'}
+              <button onClick={handleSaveEdit} disabled={editLoading}
+                className="px-4 py-2 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 rounded-lg transition-colors disabled:opacity-60">
+                {editLoading ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Order Details Modal */}
+      {/* ── Order Details Modal ── */}
       {showOrderModal && selectedOrder && selectedOrder.id && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto relative">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
-              onClick={() => setShowOrderModal(false)}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-            
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <h3 className="text-base font-bold text-gray-900">Order Details</h3>
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${getStatusColor(selectedOrder.status)}`}>
+                  {getStatusText(selectedOrder.status)}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400 font-mono">#{selectedOrder.id.slice(0, 8)}</span>
+                <button onClick={() => setShowOrderModal(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
             {loadingOrderDetails ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="flex items-center gap-3">
-                  <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-gray-600 font-medium">Loading order details...</span>
-                </div>
+              <div className="flex items-center justify-center py-16">
+                <div className="w-6 h-6 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
-              <>
-                {/* Order Header */}
-                <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Order Details</h3>
-                  <div className="flex items-center gap-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedOrder.status)}`}>
-                      {getStatusText(selectedOrder.status)}
-                    </span>
-                    <span className="text-gray-500 text-sm">Order ID: {selectedOrder.id.slice(0, 8)}...</span>
+              <div className="px-6 py-5 space-y-6">
+                {/* Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Shop</p>
+                    <p className="text-sm font-bold text-gray-900">{selectedOrder.shop?.name || '—'}</p>
+                    <p className="text-xs text-gray-500">{selectedOrder.shop?.address || '—'}</p>
+                    <p className="text-xs text-gray-500">{selectedOrder.shop?.phone || '—'}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Sales Representative</p>
+                    <p className="text-sm font-bold text-gray-900">{selectedOrder.sales_rep?.first_name} {selectedOrder.sales_rep?.last_name}</p>
+                    <p className="text-xs text-gray-500">{selectedOrder.sales_rep?.email || '—'}</p>
+                    <p className="text-xs text-gray-500">{new Date(selectedOrder.created_at).toLocaleString()}</p>
                   </div>
                 </div>
 
-                {/* Order Information Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  {/* Shop Information */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-3">Shop Information</h4>
-                    <div className="space-y-2 text-sm text-gray-900">
-                      <div><span className="font-medium text-gray-900">Name:</span> {selectedOrder.shop?.name || 'N/A'}</div>
-                      <div><span className="font-medium text-gray-900">Address:</span> {selectedOrder.shop?.address || 'N/A'}</div>
-                      <div><span className="font-medium text-gray-900">Phone:</span> {selectedOrder.shop?.phone || 'N/A'}</div>
-                    </div>
-                  </div>
-
-                  {/* Sales Representative Information */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-3">Sales Representative</h4>
-                    <div className="space-y-2 text-sm text-gray-900">
-                      <div><span className="font-medium text-gray-900">Name:</span> {selectedOrder.sales_rep?.first_name || ''} {selectedOrder.sales_rep?.last_name || ''}</div>
-                      <div><span className="font-medium text-gray-900">Email:</span> {selectedOrder.sales_rep?.email || 'N/A'}</div>
-                      <div><span className="font-medium text-gray-900">Order Date:</span> {new Date(selectedOrder.created_at).toLocaleString()}</div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Order Items */}
-                <div className="mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">Order Items</h4>
-                  <div className="overflow-hidden rounded-lg border border-gray-200">
-                    <table className="min-w-full text-gray-900">
+                {/* Items Table */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Order Items</p>
+                  <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <table className="min-w-full">
                       <thead>
-                        <tr className="bg-gray-50">
-                          <th className="px-4 py-2 text-left font-medium text-gray-800 text-sm">Product</th>
-                          <th className="px-4 py-2 text-left font-medium text-gray-800 text-sm">Unit Price</th>
-                          <th className="px-4 py-2 text-left font-medium text-gray-800 text-sm">Quantity</th>
-                          <th className="px-4 py-2 text-left font-medium text-gray-800 text-sm">Total</th>
+                        <tr className="bg-gray-50 border-b border-gray-100">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Product</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Unit Price</th>
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Qty</th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200 text-gray-900">
-                        {selectedOrder.items && selectedOrder.items.map((item, itemIndex) => (
-                          <tr key={`${item.product_id}-${itemIndex}`} className="hover:bg-gray-50">
-                            <td className="px-4 py-2">
-                              <div className="font-medium text-gray-900 text-sm">{item.name}</div>
-                            </td>
-                            <td className="px-4 py-2 text-sm text-gray-900">{Number(item.unit_price).toFixed(2)} LKR</td>
-                            <td className="px-4 py-2 text-sm text-gray-900">{item.quantity}</td>
-                            <td className="px-4 py-2 font-semibold text-sm text-gray-900">{Number(item.total).toFixed(2)} LKR</td>
+                      <tbody className="divide-y divide-gray-50">
+                        {selectedOrder.items && selectedOrder.items.map((item, idx) => (
+                          <tr key={`${item.product_id}-${idx}`} className="hover:bg-gray-50/60">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.name}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{Number(item.unit_price).toFixed(2)} LKR</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{item.quantity}</td>
+                            <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{Number(item.total).toFixed(2)} LKR</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1163,40 +1031,40 @@ export default function OrderManagement() {
                 </div>
 
                 {/* Financial Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="bg-blue-50 rounded-lg p-4 text-center">
-                    <div className="text-sm text-blue-600 font-medium mb-1">Order Total</div>
-                    <div className="text-lg font-bold text-blue-800">{Number(selectedOrder.total || 0).toFixed(2)} LKR</div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-blue-600 mb-1">Order Total</p>
+                    <p className="text-lg font-bold text-blue-800">{Number(selectedOrder.total || 0).toFixed(2)} LKR</p>
                   </div>
-                  <div className="bg-green-50 rounded-lg p-4 text-center">
-                    <div className="text-sm text-green-600 font-medium mb-1">Total Paid</div>
-                    <div className="text-lg font-bold text-green-800">{Number(selectedOrder.collected || 0).toFixed(2)} LKR</div>
+                  <div className="bg-green-50 border border-green-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-green-600 mb-1">Total Paid</p>
+                    <p className="text-lg font-bold text-green-800">{Number(selectedOrder.collected || 0).toFixed(2)} LKR</p>
                   </div>
-                  <div className="bg-red-50 rounded-lg p-4 text-center">
-                    <div className="text-sm text-red-600 font-medium mb-1">Outstanding</div>
-                    <div className="text-lg font-bold text-red-800">{Number(selectedOrder.outstanding || 0).toFixed(2)} LKR</div>
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-red-600 mb-1">Outstanding</p>
+                    <p className="text-lg font-bold text-red-800">{Number(selectedOrder.outstanding || 0).toFixed(2)} LKR</p>
                   </div>
                 </div>
 
                 {/* Payment History */}
                 {payments && payments.length > 0 && (
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-black mb-3">Payment History</h4>
-                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Payment History</p>
+                    <div className="rounded-xl border border-gray-200 overflow-hidden">
                       <table className="min-w-full">
                         <thead>
-                          <tr className="bg-gray-50">
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Date</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Amount</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Notes</th>
+                          <tr className="bg-gray-50 border-b border-gray-100">
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Amount</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Notes</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {payments.map((payment, paymentIndex) => (
-                            <tr key={`${payment.id}-${paymentIndex}`} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-sm text-black">{new Date(payment.created_at).toLocaleDateString()}</td>
-                              <td className="px-4 py-2 font-semibold text-sm text-black">{Number(payment.amount).toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm text-gray-700">{payment.notes || 'No notes'}</td>
+                        <tbody className="divide-y divide-gray-50">
+                          {payments.map((p, idx) => (
+                            <tr key={`${p.id}-${idx}`} className="hover:bg-gray-50/60">
+                              <td className="px-4 py-3 text-sm text-gray-700">{new Date(p.created_at).toLocaleDateString()}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900">{Number(p.amount).toFixed(2)} LKR</td>
+                              <td className="px-4 py-3 text-sm text-gray-500">{p.notes || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1207,224 +1075,170 @@ export default function OrderManagement() {
 
                 {/* Notes */}
                 {selectedOrder.notes && (
-                  <div className="mb-6">
-                    <h4 className="font-semibold text-gray-900 mb-2">Order Notes</h4>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <p className="text-gray-700 text-sm">{selectedOrder.notes}</p>
-                    </div>
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Order Notes</p>
+                    <p className="text-sm text-amber-900">{selectedOrder.notes}</p>
                   </div>
                 )}
 
-                {/* Action Buttons */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
-                  <button
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium transition-colors"
-                    onClick={() => setShowOrderModal(false)}
-                  >
+                {/* Footer Buttons */}
+                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                  <button onClick={() => setShowOrderModal(false)}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                     Close
                   </button>
                   {selectedOrder.status === 'pending' && (
-                    <button
-                      className="px-4 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded font-medium transition-colors"
-                      onClick={() => {
-                        setShowOrderModal(false);
-                        setOrderToApprove(selectedOrder as any);
-                        setShowApprovalModal(true);
-                      }}
-                    >
+                    <button onClick={() => { setShowOrderModal(false); setOrderToApprove(selectedOrder as any); setShowApprovalModal(true); }}
+                      className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
                       Approve Order
                     </button>
                   )}
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Approval Confirmation Modal */}
+      {/* ── Approval Modal ── */}
       {showApprovalModal && orderToApprove && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 p-6 max-w-md w-full relative">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
-              onClick={() => setShowApprovalModal(false)}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-            
-            <div className="text-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Order Approval</h3>
-              <p className="text-gray-600 text-sm">Are you sure you want to approve this order?</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+              <div className="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Confirm Approval</h3>
+                <p className="text-xs text-gray-500">This will notify the shop via SMS</p>
+              </div>
+              <button onClick={() => setShowApprovalModal(false)}
+                className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Shop</span><span className="font-semibold text-gray-900">{orderToApprove.shop_name}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Total</span><span className="font-bold text-gray-900">{Number(orderToApprove.total).toFixed(2)} LKR</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Items</span><span className="text-gray-900">{orderToApprove.item_count}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="text-gray-900">{new Date(orderToApprove.created_at).toLocaleDateString()}</span></div>
+              </div>
+
               {approvingOrder === orderToApprove.id && (
-                <div className="mt-4 flex items-center justify-center gap-2 text-blue-600">
-                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-sm font-medium">Approving order and sending SMS...</span>
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  Approving and sending SMS…
+                </div>
+              )}
+
+              {smsStatus.type && (
+                <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${smsStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {smsStatus.type === 'success'
+                      ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />}
+                  </svg>
+                  {smsStatus.message}
                 </div>
               )}
             </div>
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-              <h4 className="font-semibold text-yellow-800 mb-2">Order Summary</h4>
-              <div className="space-y-2 text-sm">
-                <div><span className="font-medium">Shop:</span> {orderToApprove.shop_name}</div>
-                <div><span className="font-medium">Total:</span> {Number(orderToApprove.total).toFixed(2)} LKR</div>
-                <div><span className="font-medium">Items:</span> {orderToApprove.item_count}</div>
-                <div><span className="font-medium">Date:</span> {new Date(orderToApprove.created_at).toLocaleDateString()}</div>
-              </div>
-            </div>
-
-            {/* SMS Status Display */}
-            {smsStatus.type && (
-              <div className={`mb-6 p-3 rounded-lg text-sm ${
-                smsStatus.type === 'success' 
-                  ? 'bg-green-50 border border-green-200 text-green-700' 
-                  : 'bg-red-50 border border-red-200 text-red-700'
-              }`}>
-                <div className="flex items-center gap-2">
-                  {smsStatus.type === 'success' ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                  <span>{smsStatus.message}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-3 justify-end">
-              <button
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium transition-colors"
-                onClick={() => setShowApprovalModal(false)}
-              >
+            <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-100">
+              <button onClick={() => setShowApprovalModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
-              
-              {/* Manual SMS Button */}
               {lastApprovedOrderId && smsStatus.type === 'error' && (
-                <button
-                  className="px-4 py-2 bg-blue-100 hover:bg-blue-200 disabled:bg-blue-50 disabled:cursor-not-allowed text-blue-700 rounded font-medium transition-colors flex items-center gap-2"
-                  onClick={handleSendApprovalSMS}
-                  disabled={sendingSMS}
-                >
-                  {sendingSMS ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <span>📱</span> Send SMS
-                    </>
-                  )}
+                <button onClick={handleSendApprovalSMS} disabled={sendingSMS}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 disabled:opacity-50 transition-colors">
+                  {sendingSMS ? <><div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />Sending…</> : 'Resend SMS'}
                 </button>
               )}
-              
-              <button
-                className="px-4 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded font-medium transition-colors"
-                onClick={() => handleApproveOrder(orderToApprove.id)}
-                disabled={approvingOrder === orderToApprove.id}
-              >
-                {approvingOrder === orderToApprove.id ? 'Approving...' : 'Yes, Approve Order'}
+              <button onClick={() => handleApproveOrder(orderToApprove.id)} disabled={approvingOrder === orderToApprove.id}
+                className="px-4 py-2 text-sm font-semibold text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-60">
+                {approvingOrder === orderToApprove.id ? 'Approving…' : 'Approve Order'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Rejection Confirmation Modal */}
+      {/* ── Rejection Modal ── */}
       {showRejectionModal && orderToReject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 p-6 max-w-md w-full relative">
-            <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
-              onClick={() => setShowRejectionModal(false)}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-            
-            <div className="text-center mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Order Rejection</h3>
-              <p className="text-gray-600 text-sm">Are you sure you want to reject this order?</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+              <div className="w-9 h-9 bg-red-100 rounded-xl flex items-center justify-center">
+                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Reject Order</h3>
+                <p className="text-xs text-gray-500">Provide a reason before rejecting</p>
+              </div>
+              <button onClick={() => setShowRejectionModal(false)}
+                className="ml-auto w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-gray-50 border border-gray-100 rounded-xl p-4 space-y-1.5 text-sm">
+                <div className="flex justify-between"><span className="text-gray-500">Shop</span><span className="font-semibold text-gray-900">{orderToReject.shop_name}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Total</span><span className="font-bold text-gray-900">{Number(orderToReject.total).toFixed(2)} LKR</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Items</span><span className="text-gray-900">{orderToReject.item_count}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Date</span><span className="text-gray-900">{new Date(orderToReject.created_at).toLocaleDateString()}</span></div>
+              </div>
+
+              <div>
+                <label htmlFor="rejection-reason" className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
+                  Rejection Reason <span className="text-red-500">*</span>
+                </label>
+                <textarea id="rejection-reason" value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} rows={3}
+                  placeholder="Please explain why this order is being rejected…"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-transparent resize-none" />
+                {rejectionReason.trim().length === 0 && (
+                  <p className="text-xs text-red-500 mt-1">A rejection reason is required</p>
+                )}
+              </div>
+
               {rejectingOrder === orderToReject.id && (
-                <div className="mt-4 flex items-center justify-center gap-2 text-red-600">
-                  <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-sm font-medium">Rejecting order and sending SMS...</span>
+                <div className="flex items-center gap-2 text-sm text-red-600">
+                  <div className="w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                  Rejecting and sending SMS…
+                </div>
+              )}
+
+              {smsStatus.type && (
+                <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${smsStatus.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {smsStatus.type === 'success'
+                      ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />}
+                  </svg>
+                  {smsStatus.message}
                 </div>
               )}
             </div>
 
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-              <h4 className="font-semibold text-red-800 mb-2">Order Summary</h4>
-              <div className="space-y-2 text-sm text-gray-900">
-                <div><span className="font-medium text-gray-900">Shop:</span> {orderToReject.shop_name}</div>
-                <div><span className="font-medium text-gray-900">Total:</span> {Number(orderToReject.total).toFixed(2)} LKR</div>
-                <div><span className="font-medium text-gray-900">Items:</span> {orderToReject.item_count}</div>
-                <div><span className="font-medium text-gray-900">Date:</span> {new Date(orderToReject.created_at).toLocaleDateString()}</div>
-              </div>
-            </div>
-
-            {/* Rejection Reason Input */}
-            <div className="mb-6">
-              <label htmlFor="rejection-reason" className="block text-sm font-medium text-gray-700 mb-2">
-                Rejection Reason <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                id="rejection-reason"
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                placeholder="Please provide a reason for rejecting this order..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-500 text-sm text-gray-900"
-                rows={3}
-                required
-              />
-              {rejectionReason.trim().length === 0 && (
-                <p className="text-red-500 text-xs mt-1">Rejection reason is required</p>
-              )}
-            </div>
-
-            {/* SMS Status Display */}
-            {smsStatus.type && (
-              <div className={`mb-6 p-3 rounded-lg text-sm ${
-                smsStatus.type === 'success' 
-                  ? 'bg-green-50 border border-green-200 text-green-700' 
-                  : 'bg-red-50 border border-red-200 text-red-700'
-              }`}>
-                <div className="flex items-center gap-2">
-                  {smsStatus.type === 'success' ? (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                  <span>{smsStatus.message}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-3 justify-end">
-              <button
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium transition-colors"
-                onClick={() => setShowRejectionModal(false)}
-              >
+            <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-100">
+              <button onClick={() => setShowRejectionModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
-              
-              <button
-                className="px-4 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => handleRejectOrder(orderToReject.id, rejectionReason)}
+              <button onClick={() => handleRejectOrder(orderToReject.id, rejectionReason)}
                 disabled={rejectingOrder === orderToReject.id || rejectionReason.trim().length === 0}
-              >
-                {rejectingOrder === orderToReject.id ? 'Rejecting...' : 'Yes, Reject Order'}
+                className="px-4 py-2 text-sm font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {rejectingOrder === orderToReject.id ? 'Rejecting…' : 'Reject Order'}
               </button>
             </div>
           </div>

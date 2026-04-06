@@ -2,22 +2,45 @@ const jwt = require('jsonwebtoken');
 const sessionService = require('../services/sessionService');
 const pool = require('../db');
 
+// In-memory session validation cache (sessionId -> { valid, expiresAt, cachedAt })
+const SESSION_CACHE_TTL = 60 * 1000; // 1 minute
+const sessionCache = new Map();
+
+function getCachedSession(sessionId) {
+  const entry = sessionCache.get(sessionId);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > SESSION_CACHE_TTL) {
+    sessionCache.delete(sessionId);
+    return null;
+  }
+  return entry;
+}
+
+function setCachedSession(sessionId, valid, expiresAt) {
+  sessionCache.set(sessionId, { valid, expiresAt, cachedAt: Date.now() });
+}
+
+// Allow other parts of the server to invalidate a session (e.g. logout)
+function invalidateSessionCache(sessionId) {
+  sessionCache.delete(sessionId);
+}
+
 async function authenticateJWT(req, res, next) {
   const authHeader = req.headers.authorization;
-  
+
   if (!authHeader) {
     return res.status(401).json({ error: 'Access token required' });
   }
 
   const token = authHeader.split(' ')[1];
-  
+
   if (!token) {
     return res.status(401).json({ error: 'Invalid token format' });
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     // Check if it's an access token
     if (decoded.type !== 'access') {
       return res.status(401).json({ error: 'Invalid token type' });
@@ -28,16 +51,25 @@ async function authenticateJWT(req, res, next) {
       return res.status(401).json({ error: 'Invalid session' });
     }
 
-    // Check session status in the database
-    const sessionResult = await pool.query(
-      'SELECT is_active, expires_at FROM user_sessions WHERE id = $1 AND user_id = $2',
-      [decoded.sessionId, decoded.id]
-    );
-    if (
-      !sessionResult.rows.length ||
-      !sessionResult.rows[0].is_active ||
-      new Date(sessionResult.rows[0].expires_at) < new Date()
-    ) {
+    // Check session cache first to avoid a DB hit on every request
+    let sessionValid = false;
+    const cached = getCachedSession(decoded.sessionId);
+    if (cached) {
+      sessionValid = cached.valid && new Date(cached.expiresAt) > new Date();
+    } else {
+      const sessionResult = await pool.query(
+        'SELECT is_active, expires_at FROM user_sessions WHERE id = $1 AND user_id = $2',
+        [decoded.sessionId, decoded.id]
+      );
+      if (sessionResult.rows.length && sessionResult.rows[0].is_active) {
+        sessionValid = new Date(sessionResult.rows[0].expires_at) > new Date();
+        setCachedSession(decoded.sessionId, sessionValid, sessionResult.rows[0].expires_at);
+      } else {
+        setCachedSession(decoded.sessionId, false, new Date(0));
+      }
+    }
+
+    if (!sessionValid) {
       return res.status(401).json({ error: 'Session is inactive or expired. Please login again.' });
     }
 
@@ -96,5 +128,6 @@ module.exports = {
   authenticateJWT,
   requireRole,
   requireAdminOrSuperadmin,
-  requireSalesRep
+  requireSalesRep,
+  invalidateSessionCache
 }; 

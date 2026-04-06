@@ -40,7 +40,7 @@ const API_BASE = (() => {
   const override = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/$/, '');
   if (override) return override;
   if (process.env.NODE_ENV === 'production') return '/.netlify/functions/api-proxy';
-  return 'http://localhost:3001';
+  return '';
 })();
 
 export function AuthProvider({ children }: AuthProviderProps) {

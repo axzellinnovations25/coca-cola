@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { apiFetch } from '../../../utils/api';
+import { apiFetch, clearCache } from '../../../utils/api';
 
 interface Shop {
   id: string;
@@ -116,6 +116,7 @@ export default function ShopManagement() {
       // Small delay to ensure server operation completes
       await new Promise(resolve => setTimeout(resolve, 200));
       // Fetch fresh data directly
+      clearCache('/api/marudham/shops');
       const data = await apiFetch('/api/marudham/shops');
       setShops(data.shops);
       setError('');

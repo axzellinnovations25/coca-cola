@@ -127,23 +127,6 @@ export default function OrderLogTable({ logs }: { logs: Log[] }) {
   const [sortBy, setSortBy] = useState<SortCol>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  // Debug: Log the first log entry to see data structure
-  React.useEffect(() => {
-    if (logs && logs.length > 0) {
-      console.log('First log entry:', logs[0]);
-      console.log('order_total type:', typeof logs[0].order_total);
-      console.log('order_total value:', logs[0].order_total);
-      console.log('Details structure:', logs[0].details);
-      if (logs[0].details && logs[0].details.items) {
-        console.log('Items in details:', logs[0].details.items);
-        logs[0].details.items.forEach((item: any, index: number) => {
-          console.log(`Item ${index}:`, item);
-          console.log(`Item ${index} product_name:`, item.product_name);
-        });
-      }
-    }
-  }, [logs]);
-
   if (!logs || logs.length === 0) {
     return <div className="text-gray-400 text-center py-8">No order logs found.</div>;
   }

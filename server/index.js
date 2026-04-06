@@ -14,20 +14,36 @@ const sessionService = require('./src/services/sessionService');
 const app = express();
 const port = process.env.PORT || 3001;
 
+const allowedOriginPatterns = [
+  /^http:\/\/localhost(?::\d+)?$/,
+  /^http:\/\/127\.0\.0\.1(?::\d+)?$/,
+  /^http:\/\/0\.0\.0\.0(?::\d+)?$/,
+  /^http:\/\/172\.\d+\.\d+\.\d+(?::\d+)?$/,
+  /^https:\/\/[a-z0-9-]+\.netlify\.app$/i,
+  /^https:\/\/[a-z0-9-]+\.netlify\.com$/i,
+];
+
+const allowedOrigins = new Set([
+  'https://sbdistribution.store',
+  'https://www.sbdistribution.store',
+  process.env.FRONTEND_URL,
+].filter(Boolean));
+
 // CORS configuration
 const corsOptions = {
-  origin: [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://172.20.10.4:3000',
-    'http://0.0.0.0:3000',
-    // Netlify domains
-    'https://*.netlify.app',
-    'https://*.netlify.com',
-    // Production domain
-    'https://sbdistribution.store',
-    'https://www.sbdistribution.store'
-  ],
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.has(origin) || allowedOriginPatterns.some((pattern) => pattern.test(origin))) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

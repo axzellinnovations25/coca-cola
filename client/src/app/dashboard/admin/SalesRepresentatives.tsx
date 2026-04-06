@@ -86,13 +86,20 @@ export default function SalesRepresentatives() {
     return matchesSearch && matchesStatus && matchesPerformance;
   });
 
+  // Sort filtered representatives based on revenueFilter
+  const sortedRepresentatives = [...filteredRepresentatives].sort((a, b) => {
+    if (revenueFilter === 'Orders') return (b.order_count ?? 0) - (a.order_count ?? 0);
+    if (revenueFilter === 'Collection Rate') return (b.collection_rate ?? 0) - (a.collection_rate ?? 0);
+    return (b.total_revenue ?? 0) - (a.total_revenue ?? 0); // Default: Revenue
+  });
+
   // Pagination
   const [page, setPage] = useState(1);
   const repsPerPage = 10;
-  const totalPages = Math.ceil(filteredRepresentatives.length / repsPerPage) || 1;
-  const paginatedReps = filteredRepresentatives.slice((page - 1) * repsPerPage, page * repsPerPage);
+  const totalPages = Math.ceil(sortedRepresentatives.length / repsPerPage) || 1;
+  const paginatedReps = sortedRepresentatives.slice((page - 1) * repsPerPage, page * repsPerPage);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter, performanceFilter]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, performanceFilter, revenueFilter]);
 
   const exportData = () => {
     const csvData = [
@@ -309,7 +316,7 @@ export default function SalesRepresentatives() {
         {/* Pagination Controls */}
         <div className="flex justify-between items-center mt-6">
           <span className="text-sm text-gray-600">
-            Showing {page * repsPerPage - repsPerPage + 1} to {Math.min(page * repsPerPage, filteredRepresentatives.length)} of {filteredRepresentatives.length} entries
+            Showing {page * repsPerPage - repsPerPage + 1} to {Math.min(page * repsPerPage, sortedRepresentatives.length)} of {sortedRepresentatives.length} entries
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -330,7 +337,7 @@ export default function SalesRepresentatives() {
           </div>
         </div>
 
-        {filteredRepresentatives.length === 0 && (
+        {sortedRepresentatives.length === 0 && (
           <div className="text-center py-8 text-gray-400">
             No sales representatives found matching your criteria.
           </div>

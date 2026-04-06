@@ -58,17 +58,6 @@ export default function PaymentLogTable({ logs }: { logs: Log[] }) {
   const [sortBy, setSortBy] = useState<SortCol>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
-  // Debug: Log the first log entry to see data structure
-  React.useEffect(() => {
-    if (logs && logs.length > 0) {
-      console.log('First payment log entry:', logs[0]);
-      console.log('payment_amount type:', typeof logs[0].payment_amount);
-      console.log('payment_amount value:', logs[0].payment_amount);
-      console.log('order_total type:', typeof logs[0].order_total);
-      console.log('order_total value:', logs[0].order_total);
-    }
-  }, [logs]);
-
   if (!logs || logs.length === 0) {
     return <div className="text-gray-400 text-center py-8">No payment logs found.</div>;
   }

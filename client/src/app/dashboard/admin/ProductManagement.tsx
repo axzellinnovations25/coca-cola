@@ -22,7 +22,6 @@ export default function ProductManagement() {
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);

@@ -28,16 +28,18 @@ function isNavigationRequest(request) {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const url = new URL(request.url);
 
   // Bypass non-GET or cross-origin
   if (request.method !== 'GET') return;
+  if (url.origin !== self.location.origin) return;
 
   // Never cache API calls or authentication endpoints
-  if (new URL(request.url).pathname.startsWith('/api/') || 
-      new URL(request.url).pathname.startsWith('/.netlify/functions/api-proxy/api/')) return;
+  if (url.pathname.startsWith('/api/') || 
+      url.pathname.startsWith('/.netlify/functions/api-proxy/api/')) return;
 
   // Cache-first for Next.js static assets
-  if (new URL(request.url).pathname.startsWith('/_next/static/')) {
+  if (url.pathname.startsWith('/_next/static/')) {
     event.respondWith(
       caches.open(STATIC_CACHE).then((cache) => cache.match(request).then((cached) => {
         const fetchPromise = fetch(request).then((networkResponse) => {
@@ -64,7 +66,7 @@ self.addEventListener('fetch', (event) => {
         .catch(async () => {
           const cache = await caches.open(RUNTIME_CACHE);
           const cached = await cache.match(request);
-          return cached || caches.match(OFFLINE_URL);
+          return cached || caches.match(OFFLINE_URL) || Response.error();
         })
     );
     return;
@@ -76,7 +78,7 @@ self.addEventListener('fetch', (event) => {
       const copy = response.clone();
       caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy)).catch(() => {});
       return response;
-    }).catch(() => cached))
+    }).catch(() => cached || Response.error()))
   );
 });
 

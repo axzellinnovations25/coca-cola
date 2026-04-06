@@ -1,6 +1,7 @@
 const userService = require('../services/userService');
 const emailService = require('../services/emailService');
 const sessionService = require('../services/sessionService');
+const { invalidateSessionCache } = require('../middleware/auth');
 
 exports.createUser = async (req, res) => {
   try {
@@ -82,6 +83,7 @@ exports.logout = async (req, res) => {
     
     if (sessionId) {
       await sessionService.invalidateSession(sessionId, req.user.id);
+      invalidateSessionCache(sessionId);
     }
     
     res.json({ message: 'Logged out successfully' });
