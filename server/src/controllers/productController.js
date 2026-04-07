@@ -429,20 +429,33 @@ exports.sendOrderSMS = async (req, res) => {
   try {
     const { order_id } = req.params;
     const sales_rep_id = req.user && req.user.id;
+    console.log('sendOrderSMS hit', { order_id, sales_rep_id });
     
     // Get order details with shop and items
     const orderDetails = await shopService.getOrderDetails(order_id);
     if (!orderDetails) {
+      console.log('sendOrderSMS order not found', { order_id });
       return res.status(404).json({ error: 'Order not found' });
     }
+    console.log('sendOrderSMS order loaded', {
+      order_id,
+      orderSalesRepId: orderDetails.sales_rep_id,
+      shopPhone: orderDetails.shop?.phone || null,
+    });
     
     // Verify the order belongs to this sales rep
     if (orderDetails.sales_rep_id !== sales_rep_id) {
+      console.log('sendOrderSMS access denied', {
+        order_id,
+        orderSalesRepId: orderDetails.sales_rep_id,
+        sales_rep_id,
+      });
       return res.status(403).json({ error: 'Access denied' });
     }
     
     // Check if shop has phone number
     if (!orderDetails.shop.phone) {
+      console.log('sendOrderSMS missing shop phone', { order_id });
       return res.status(400).json({ 
         error: 'Shop phone number not available. Please update shop details with a valid phone number.' 
       });
@@ -540,20 +553,33 @@ exports.sendPaymentSMS = async (req, res) => {
   try {
     const { payment_id } = req.params;
     const sales_rep_id = req.user && req.user.id;
+    console.log('sendPaymentSMS hit', { payment_id, sales_rep_id });
     
     // Get payment details with order and shop
     const paymentDetails = await shopService.getPaymentDetails(payment_id);
     if (!paymentDetails) {
+      console.log('sendPaymentSMS payment not found', { payment_id });
       return res.status(404).json({ error: 'Payment not found' });
     }
+    console.log('sendPaymentSMS payment loaded', {
+      payment_id,
+      paymentSalesRepId: paymentDetails.sales_rep?.id || paymentDetails.sales_rep_id || null,
+      shopPhone: paymentDetails.shop?.phone || null,
+    });
     
     // Verify the payment belongs to this sales rep
     if (paymentDetails.sales_rep_id !== sales_rep_id) {
+      console.log('sendPaymentSMS access denied', {
+        payment_id,
+        paymentSalesRepId: paymentDetails.sales_rep_id,
+        sales_rep_id,
+      });
       return res.status(403).json({ error: 'Access denied' });
     }
     
     // Check if shop has phone number
     if (!paymentDetails.shop.phone) {
+      console.log('sendPaymentSMS missing shop phone', { payment_id });
       return res.status(400).json({ 
         error: 'Shop phone number not available. Please update shop details with a valid phone number.' 
       });

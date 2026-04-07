@@ -15,7 +15,7 @@
     },
     "extra": {
       "apiBaseUrlProd": "https://api.sbdistribution.store",
-      "apiBaseUrlDev": "http://192.168.1.20:3000",
+      "apiBaseUrlDev": "http://192.168.1.20:3001",
       "eas": {
         "projectId": "7b2133d6-8bc6-4915-8907-3e619736037b"
       }

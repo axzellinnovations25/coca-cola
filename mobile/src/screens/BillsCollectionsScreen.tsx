@@ -439,6 +439,28 @@ export default function BillsCollectionsScreen() {
     };
   }, [paymentReceipt?.created_at]);
 
+  const paymentAmountInvalid =
+    paymentAmount !== '' && (isNaN(Number(paymentAmount)) || Number(paymentAmount) <= 0);
+
+  const paymentPreview = useMemo(() => {
+    if (!selectedBill || !paymentAmount) return null;
+    const amount = Number(paymentAmount);
+    if (isNaN(amount) || amount <= 0) return null;
+    if (amount > selectedBill.outstanding + 0.005) {
+      return {
+        type: 'warn' as const,
+        message: `Exceeds outstanding by ${(amount - selectedBill.outstanding).toFixed(2)} LKR`,
+      };
+    }
+    if (Math.abs(amount - selectedBill.outstanding) <= 0.005) {
+      return { type: 'clear' as const, message: 'This will fully clear the bill' };
+    }
+    return {
+      type: 'remain' as const,
+      message: `${(selectedBill.outstanding - amount).toFixed(2)} LKR will remain outstanding`,
+    };
+  }, [selectedBill, paymentAmount]);
+
   const closePaymentReceipt = () => {
     setShowPaymentReceipt(false);
     setPaymentReceipt(null);
@@ -787,13 +809,31 @@ export default function BillsCollectionsScreen() {
             <TextInput
               placeholder="Amount (LKR)"
               placeholderTextColor={colors.textMuted}
-              style={styles.input}
-              keyboardType="numeric"
+              style={[styles.input, paymentAmountInvalid && styles.inputError]}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
               value={paymentAmount}
-              onChangeText={setPaymentAmount}
+              onChangeText={(v) => { setPaymentAmount(v); setPaymentError(''); }}
               autoFocus
               selectTextOnFocus
             />
+            {paymentAmountInvalid ? (
+              <Text style={styles.inlineError}>Enter a valid amount</Text>
+            ) : paymentPreview ? (
+              <View style={[
+                styles.paymentPreviewBox,
+                paymentPreview.type === 'warn' && styles.paymentPreviewWarnBox,
+                paymentPreview.type === 'clear' && styles.paymentPreviewClearBox,
+              ]}>
+                <Text style={
+                  paymentPreview.type === 'warn' ? styles.paymentPreviewWarnText
+                  : paymentPreview.type === 'clear' ? styles.paymentPreviewClearText
+                  : styles.paymentPreviewRemainText
+                }>
+                  {paymentPreview.message}
+                </Text>
+              </View>
+            ) : null}
 
             {showNotesInput ? (
               <TextInput
@@ -1278,8 +1318,11 @@ const makeStyles = (colors: ThemeColors) =>
   billButton: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.borderStrong,
   },
@@ -1290,8 +1333,11 @@ const makeStyles = (colors: ThemeColors) =>
   returnButton: {
     backgroundColor: colors.warningSurface,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.warning,
   },
@@ -1570,23 +1616,29 @@ const makeStyles = (colors: ThemeColors) =>
     backgroundColor: colors.surface,
     borderRadius: 10,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 10,
+    minHeight: 44,
     color: colors.text,
     borderWidth: 1,
     borderColor: colors.border,
     textAlign: 'center',
+    textAlignVertical: 'center',
   },
   actionPrimary: {
     backgroundColor: colors.accent,
     borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
+    minHeight: 48,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   actionSecondary: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 12,
-    paddingVertical: 10,
+    paddingVertical: 14,
+    minHeight: 48,
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: colors.borderStrong,
   },
@@ -1600,6 +1652,45 @@ const makeStyles = (colors: ThemeColors) =>
   },
   actionDisabled: {
     opacity: 0.5,
+  },
+  inputError: {
+    borderColor: colors.danger,
+  },
+  inlineError: {
+    color: colors.danger,
+    fontSize: 12,
+    marginTop: -4,
+  },
+  paymentPreviewBox: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+  },
+  paymentPreviewWarnBox: {
+    backgroundColor: colors.warningSurface,
+    borderColor: colors.warning,
+  },
+  paymentPreviewClearBox: {
+    backgroundColor: colors.successSurface,
+    borderColor: colors.success,
+  },
+  paymentPreviewWarnText: {
+    color: colors.warning,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  paymentPreviewClearText: {
+    color: colors.success,
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  paymentPreviewRemainText: {
+    color: colors.textSubtle,
+    fontWeight: '600',
+    fontSize: 13,
   },
   selectedPrinterItem: {
     borderColor: colors.accent,

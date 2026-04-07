@@ -58,9 +58,9 @@ async function sendSMS(phoneNumber, message) {
 
     // Format and validate phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
-    
+    const endpoint = `${TEXT_LK_CONFIG.baseUrl}/sms/send`;
 
-    const response = await axios.post(`${TEXT_LK_CONFIG.baseUrl}/sms/send`, {
+    const response = await axios.post(endpoint, {
       recipient: formattedPhone,
       sender_id: TEXT_LK_CONFIG.senderId,
       type: 'plain',
@@ -80,14 +80,33 @@ async function sendSMS(phoneNumber, message) {
         messageId: response.data.data?.uid || null
       };
     } else {
-      console.log(`SMS failed for ${formattedPhone}: ${response.data.message}`);
+      console.error('Text.lk SMS rejected request', {
+        endpoint,
+        recipient: formattedPhone,
+        senderId: TEXT_LK_CONFIG.senderId,
+        statusCode: response.status,
+        responseBody: response.data
+      });
       return {
         success: false,
         error: response.data.message || 'Failed to send SMS'
       };
     }
   } catch (error) {
-    console.error('SMS sending failed:', error.response?.data || error.message);
+    console.error('Text.lk SMS request failed', {
+      endpoint: `${TEXT_LK_CONFIG.baseUrl}/sms/send`,
+      recipient: (() => {
+        try {
+          return formatPhoneNumber(phoneNumber);
+        } catch {
+          return phoneNumber;
+        }
+      })(),
+      senderId: TEXT_LK_CONFIG.senderId,
+      statusCode: error.response?.status || null,
+      responseBody: error.response?.data || null,
+      message: error.message
+    });
     return {
       success: false,
       error: error.response?.data?.message || error.message
@@ -109,10 +128,11 @@ async function sendWhatsApp(phoneNumber, message) {
 
     // Format and validate phone number
     const formattedPhone = formatPhoneNumber(phoneNumber);
-    
+    const endpoint = `${TEXT_LK_CONFIG.baseUrl}/sms/send`;
+
     console.log(`Sending WhatsApp to: ${formattedPhone}`);
 
-    const response = await axios.post(`${TEXT_LK_CONFIG.baseUrl}/sms/send`, {
+    const response = await axios.post(endpoint, {
       recipient: formattedPhone,
       sender_id: TEXT_LK_CONFIG.senderId,
       type: 'whatsapp',
@@ -133,14 +153,33 @@ async function sendWhatsApp(phoneNumber, message) {
         messageId: response.data.data?.uid || null
       };
     } else {
-      console.log(`WhatsApp failed for ${formattedPhone}: ${response.data.message}`);
+      console.error('Text.lk WhatsApp rejected request', {
+        endpoint,
+        recipient: formattedPhone,
+        senderId: TEXT_LK_CONFIG.senderId,
+        statusCode: response.status,
+        responseBody: response.data
+      });
       return {
         success: false,
         error: response.data.message || 'Failed to send WhatsApp message'
       };
     }
   } catch (error) {
-    console.error('WhatsApp sending failed:', error.response?.data || error.message);
+    console.error('Text.lk WhatsApp request failed', {
+      endpoint: `${TEXT_LK_CONFIG.baseUrl}/sms/send`,
+      recipient: (() => {
+        try {
+          return formatPhoneNumber(phoneNumber);
+        } catch {
+          return phoneNumber;
+        }
+      })(),
+      senderId: TEXT_LK_CONFIG.senderId,
+      statusCode: error.response?.status || null,
+      responseBody: error.response?.data || null,
+      message: error.message
+    });
     return {
       success: false,
       error: error.response?.data?.message || error.message

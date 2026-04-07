@@ -28,8 +28,77 @@ const getTimeGreeting = () => {
   return 'Good Evening';
 };
 
-const formatRelativeDate = (dateStr: string) => {
-  const date = new Date(dateStr);
+const parseDate = (value: string | number | Date | null | undefined) => {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'number') {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const numeric = Number(raw);
+  if (!Number.isNaN(numeric)) {
+    const ms = numeric < 1e12 ? numeric * 1000 : numeric;
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  let normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  normalized = normalized.replace(/(\.\d{3})\d+/, '$1');
+  if (/[+-]\d{2}$/.test(normalized)) {
+    normalized = `${normalized}:00`;
+  } else if (/[+-]\d{4}$/.test(normalized)) {
+    normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+  }
+  let d = new Date(normalized);
+  if (!Number.isNaN(d.getTime())) return d;
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(normalized)) {
+    d = new Date(`${normalized}Z`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  const noFraction = normalized.replace(/\.\d+/, '');
+  if (noFraction !== normalized) {
+    d = new Date(noFraction);
+    if (!Number.isNaN(d.getTime())) return d;
+    if (!noFraction.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(noFraction)) {
+      d = new Date(`${noFraction}Z`);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+  }
+  const match = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2})(?::?(\d{2}))?)?$/,
+  );
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+    const fraction = match[7] ? Number(match[7]) : 0;
+    const ms = Math.floor(fraction * 1000);
+    const tz = match[8];
+    if (!tz) {
+      const localDate = new Date(year, month, day, hour, minute, second, ms);
+      return Number.isNaN(localDate.getTime()) ? null : localDate;
+    }
+    if (tz === 'Z') {
+      return new Date(Date.UTC(year, month, day, hour, minute, second, ms));
+    }
+    const sign = match[9] === '-' ? -1 : 1;
+    const tzHour = Number(match[10] || 0);
+    const tzMin = Number(match[11] || 0);
+    const offsetMinutes = sign * (tzHour * 60 + tzMin);
+    const utcTime = Date.UTC(year, month, day, hour, minute, second, ms) - offsetMinutes * 60000;
+    return new Date(utcTime);
+  }
+  return null;
+};
+
+const formatRelativeDate = (dateValue: string | number | null | undefined) => {
+  const date = parseDate(dateValue);
+  if (!date) return '--';
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -366,17 +435,17 @@ export default function DashboardScreen() {
         outstanding_amount: shops.reduce((sum: number, s: any) => sum + Number(s.current_outstanding || 0), 0),
         shop_count: shops.length,
         today_orders: orders.filter((o: any) => {
-          const orderDate = new Date(o.created_at).toDateString();
-          return orderDate === new Date().toDateString();
+          const orderDate = parseDate(o.created_at);
+          return orderDate?.toDateString() === new Date().toDateString();
         }).length,
         today_collections: collections.filter((c: any) => {
-          const collectionDate = new Date(c.payment_date).toDateString();
-          return collectionDate === new Date().toDateString();
+          const collectionDate = parseDate(c.payment_date);
+          return collectionDate?.toDateString() === new Date().toDateString();
         }).length,
       };
 
       const recentOrdersData = orders
-        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .sort((a: any, b: any) => (parseDate(b.created_at)?.getTime() || 0) - (parseDate(a.created_at)?.getTime() || 0))
         .slice(0, 5)
         .map((order: any) => ({
           id: order.id,
@@ -387,7 +456,9 @@ export default function DashboardScreen() {
         }));
 
       const recentCollectionsData = collections
-        .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())
+        .sort(
+          (a: any, b: any) => (parseDate(b.payment_date)?.getTime() || 0) - (parseDate(a.payment_date)?.getTime() || 0),
+        )
         .slice(0, 5)
         .map((collection: any) => ({
           payment_id: collection.payment_id,
