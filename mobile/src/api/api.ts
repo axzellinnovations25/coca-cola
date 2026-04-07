@@ -121,6 +121,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
       } else {
         await clearPersistentStorage('token');
         await clearPersistentStorage('sessionInfo');
+        await AsyncStorage.setItem('forceLogout', 'true');
         throw new Error('Session expired. Please login again.');
       }
     }

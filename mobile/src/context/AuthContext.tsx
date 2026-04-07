@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
 import { jwtDecode } from 'jwt-decode';
 import { API_BASE_URL, clearSession, refreshToken } from '../api/api';
 
@@ -68,13 +69,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshSession = async () => {
     const newToken = await refreshToken();
-    if (!newToken) return false;
+    if (!newToken) {
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('sessionInfo');
+      return false;
+    }
 
     try {
       const decoded = jwtDecode<User>(newToken);
       setUser(decoded);
       return true;
     } catch {
+      await AsyncStorage.removeItem('token');
+      await AsyncStorage.removeItem('sessionInfo');
       return false;
     }
   };
@@ -165,6 +172,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initializeAuth();
+  }, []);
+
+  useEffect(() => {
+    const checkForceLogout = async () => {
+      const flag = await AsyncStorage.getItem('forceLogout');
+      if (flag === 'true') {
+        await AsyncStorage.removeItem('forceLogout');
+        logout();
+      }
+    };
+    const sub = AppState.addEventListener('change', checkForceLogout);
+    return () => sub.remove();
   }, []);
 
   const value = useMemo<AuthContextType>(

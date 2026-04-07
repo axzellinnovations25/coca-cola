@@ -342,11 +342,15 @@ export default function DashboardScreen() {
       if (!isRefresh && !silent) setLoading(true);
       setError('');
 
-      const [ordersData, collectionsData, shopsData] = await Promise.all([
+      const [ordersResult, collectionsResult, shopsResult] = await Promise.allSettled([
         apiFetch('/api/marudham/orders'),
         apiFetch('/api/marudham/collections/representative'),
         apiFetch('/api/marudham/shops/assigned'),
       ]);
+
+      const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : { orders: [] };
+      const collectionsData = collectionsResult.status === 'fulfilled' ? collectionsResult.value : { collections: [] };
+      const shopsData = shopsResult.status === 'fulfilled' ? shopsResult.value : { shops: [] };
 
       const orders = ordersData.orders || [];
       const collections = collectionsData.collections || [];

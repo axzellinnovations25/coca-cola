@@ -265,101 +265,101 @@ export default function SalesRepDashboard({ user, handleLogout }: SalesRepDashbo
   }, [currentSection, ordersRefreshKey, shopsRefreshKey, billsRefreshKey, handleOrderPlaced, handlePaymentRecorded, handleSectionClick]);
 
   return (
-    <div className="flex min-h-screen bg-gray-50 overflow-x-hidden">
+    <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Mobile Overlay */}
       {sidebarOpen && isMobile && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden transition-opacity duration-300"
+        <div
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Enhanced Sidebar */}
-      <aside 
+      {/* Sidebar */}
+      <aside
         id="sidebar"
-        className={`fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-64 bg-white border-r border-gray-200 flex flex-col justify-between min-h-screen transform transition-all duration-300 ease-in-out shadow-xl lg:shadow-none ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col h-screen flex-shrink-0 shadow-xl transform transition-all duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="flex-1 overflow-y-auto">
-          {/* Header */}
-          <div className="px-6 py-6 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-500 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-lg">MR</span>
-                </div>
-                <div>
-                  <h1 className="text-lg font-semibold text-gray-900">S.B Distributions</h1>
-                  <p className="text-sm text-gray-500">Sales Dashboard</p>
-                </div>
+        {/* Brand */}
+        <div className="px-5 py-5 border-b border-slate-700/50 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 bg-violet-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
+                <span className="text-white font-bold text-sm">MR</span>
               </div>
-              
-              {/* Mobile Close Button */}
-              <button
-                id="hamburger"
-                className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div>
+                <h1 className="text-white font-bold text-base leading-tight">Marudham</h1>
+                <p className="text-slate-400 text-xs mt-0.5">Sales Dashboard</p>
+              </div>
             </div>
-          </div>
 
-          {/* Navigation */}
-          <nav className="px-4 py-4">
-            <ul className="space-y-2">
-              {sidebarItems.map((item) => (
-                <li key={item.label}>
-                  <button
-                    onClick={() => handleSectionClick(item.label)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 ${
-                      currentSection === item.label
-                        ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                        : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
-                  >
-                    <span>{item.icon}</span>
-                    <div className="flex-1">
-                      <div className="font-medium">{item.label}</div>
-                      <div className="text-sm opacity-75">{item.description}</div>
-                    </div>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {/* Mobile Close Button */}
+            <button
+              id="hamburger"
+              className="lg:hidden p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <div className="flex flex-col flex-1 min-h-0">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest px-3 mb-2 mt-4 flex-shrink-0">
+            Menu
+          </p>
+          <nav className="flex flex-col gap-1 px-3 py-2 overflow-y-auto flex-1">
+            {sidebarItems.map((item) => (
+              <button
+                key={item.label}
+                onClick={() => handleSectionClick(item.label)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
+                  currentSection === item.label
+                    ? 'bg-violet-600 text-white shadow-md shadow-violet-900/40 font-semibold text-sm'
+                    : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-100 font-medium text-sm'
+                }`}
+              >
+                <span className="w-5 h-5 flex-shrink-0">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
           </nav>
         </div>
 
-        {/* User Info & Logout */}
-        <div className="px-4 py-4 border-t border-gray-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-              <span className="text-gray-600 font-semibold">
+        {/* Footer — User Info & Logout */}
+        <div className="px-4 py-4 border-t border-slate-700/50 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center flex-shrink-0">
+              <span className="text-white text-xs font-bold">
                 {user.first_name?.[0]}{user.last_name?.[0]}
               </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 truncate">
+              <p className="text-sm font-semibold text-white truncate">
                 {user.first_name} {user.last_name}
               </p>
-              <p className="text-sm text-gray-500 truncate">{user.email}</p>
+              <p className="text-xs text-slate-400 truncate">{user.email}</p>
             </div>
           </div>
-          
+
           <button
             onClick={handleLogoutClick}
-            className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-colors"
+            className="flex items-center gap-2 text-slate-400 hover:text-red-400 text-sm font-medium transition-colors mt-2"
           >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
             Logout
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-0 min-w-0 overflow-x-hidden">
+      <main className="flex-1 overflow-y-auto">
         {/* Mobile Header */}
         <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-4">
           <div className="flex items-center justify-between">
@@ -371,13 +371,13 @@ export default function SalesRepDashboard({ user, handleLogout }: SalesRepDashbo
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
-            <h1 className="text-lg font-semibold text-gray-900">S.B Distributions</h1>
-            <div className="w-10"></div>
+            <h1 className="text-base font-bold text-gray-900">Marudham</h1>
+            <div className="w-10" />
           </div>
         </div>
 
         {/* Content Area */}
-        <div className="p-4 lg:p-6 overflow-x-hidden">
+        <div className="p-6 md:p-8">
           {CurrentComponent}
         </div>
       </main>
@@ -395,7 +395,7 @@ export default function SalesRepDashboard({ user, handleLogout }: SalesRepDashbo
             <button
               onClick={() => handleFABNavigate('Bills & Collections')}
               className={`group flex items-center gap-3 px-4 py-3 bg-white rounded-full shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-200 transform hover:scale-105 ${
-                currentSection === 'Bills & Collections' ? 'ring-2 ring-purple-500' : ''
+                currentSection === 'Bills & Collections' ? 'ring-2 ring-violet-500' : ''
               }`}
             >
               <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center group-hover:bg-red-600 transition-colors">
@@ -415,7 +415,7 @@ export default function SalesRepDashboard({ user, handleLogout }: SalesRepDashbo
             <button
               onClick={() => handleFABNavigate('Create Order')}
               className={`group flex items-center gap-3 px-4 py-3 bg-white rounded-full shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-200 transform hover:scale-105 ${
-                currentSection === 'Create Order' ? 'ring-2 ring-purple-500' : ''
+                currentSection === 'Create Order' ? 'ring-2 ring-violet-500' : ''
               }`}
             >
               <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center group-hover:bg-green-600 transition-colors">
@@ -434,14 +434,14 @@ export default function SalesRepDashboard({ user, handleLogout }: SalesRepDashbo
         {/* Main FAB Button */}
         <button
           onClick={() => setFabExpanded(!fabExpanded)}
-          className="w-14 h-14 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center group"
+          className="w-14 h-14 bg-violet-600 hover:bg-violet-700 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105 flex items-center justify-center"
         >
-          <svg 
+          <svg
             className={`w-6 h-6 text-white transition-transform duration-300 ${
               fabExpanded ? 'rotate-45' : ''
-            }`} 
-            fill="none" 
-            stroke="currentColor" 
+            }`}
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

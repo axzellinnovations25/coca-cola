@@ -300,7 +300,7 @@ export default function BillsCollectionsScreen() {
 
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
-    setSelectedShopName(shopName);
+    setSelectedShopName(shopName ?? '');
     setPaymentAmount(bill.outstanding.toFixed(2));
     setPaymentNotes('');
     setShowNotesInput(false);
@@ -311,6 +311,8 @@ export default function BillsCollectionsScreen() {
   };
 
   const openReturnModal = async (bill: Bill) => {
+    setReturnItems([]);
+    setReturnQuantities({});
     setReturnLoading(true);
     setReturnError('');
     setReturnOrderId(bill.id);
@@ -410,6 +412,7 @@ export default function BillsCollectionsScreen() {
 
   const sendPaymentSMS = async () => {
     if (!lastPaymentId) return;
+    if (sendingSMS) return;
     setSendingSMS(true);
     setSmsStatus({ type: null, message: '' });
     try {
@@ -826,7 +829,8 @@ export default function BillsCollectionsScreen() {
               <TouchableOpacity
                 style={[styles.actionPrimary, (!paymentAmount || paymentLoading) && styles.actionDisabled]}
                 onPress={() => {
-                  if (!paymentAmount || Number(paymentAmount) <= 0) {
+                  const amount = Number(paymentAmount);
+                  if (!paymentAmount || isNaN(amount) || amount <= 0) {
                     setPaymentError('Please enter a valid amount.');
                     return;
                   }

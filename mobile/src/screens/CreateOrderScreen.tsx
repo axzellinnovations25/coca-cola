@@ -277,19 +277,41 @@ export default function CreateOrderScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      let cancelled = false;
       const now = Date.now();
       const isStale = now - lastFetchedAt.current > 30_000;
       if (isStale) {
-        fetchData(lastFetchedAt.current > 0); // silent if previously loaded
+        const silent = lastFetchedAt.current > 0;
+        (async () => {
+          try {
+            if (!silent) setLoading(true);
+            setError('');
+            const [shopData, productData] = await Promise.all([
+              apiFetch('/api/marudham/shops/assigned'),
+              apiFetch('/api/marudham/order-products'),
+            ]);
+            if (cancelled) return;
+            setShops(shopData.shops || []);
+            setProducts(productData.products || []);
+            lastFetchedAt.current = Date.now();
+          } catch (err: any) {
+            if (cancelled) return;
+            setError(err.message);
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
       }
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
+          if (cancelled) return;
           if (savedMac) {
             setSelectedPrinterMac(savedMac);
           }
         })
         .catch(() => {});
-    }, [fetchData]),
+      return () => { cancelled = true; };
+    }, []),
   );
 
   const filteredShops = useMemo(() => {
@@ -403,7 +425,9 @@ export default function CreateOrderScreen() {
       setSelectedShop(null);
       setShopSearch('');
       if (selectedShop.phone) {
-        sendSMS(response.order.id);
+        sendSMS(response.order.id).catch(() => {
+          setMessageStatus({ type: 'error', message: 'Order created but SMS failed.' });
+        });
       } else {
         setMessageStatus({ type: 'error', message: 'SMS not sent (no phone on record).' });
       }

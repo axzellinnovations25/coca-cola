@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -167,6 +167,15 @@ export default function MyOrdersScreen() {
   const [productSearch, setProductSearch] = useState('');
   const [selectedEditProduct, setSelectedEditProduct] = useState<Product | null>(null);
 
+  const isMounted = useRef(true);
+  const errorClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      if (errorClearTimeout.current) clearTimeout(errorClearTimeout.current);
+    };
+  }, []);
+
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
@@ -212,10 +221,13 @@ export default function MyOrdersScreen() {
     setMessageStatus({ type: null, message: '' });
     try {
       const response = await apiFetch(`/api/marudham/orders/${order.id}/details`);
+      if (!isMounted.current) return;
       setSelectedOrder(response.order || order);
     } catch {
+      if (!isMounted.current) return;
       setSelectedOrder(order);
     } finally {
+      if (!isMounted.current) return;
       setLoadingDetails(false);
     }
   };
@@ -342,6 +354,13 @@ export default function MyOrdersScreen() {
     setShowProductPicker(false);
   };
 
+  const scheduleErrorClear = () => {
+    if (errorClearTimeout.current) clearTimeout(errorClearTimeout.current);
+    errorClearTimeout.current = setTimeout(() => {
+      setMessageStatus({ type: null, message: '' });
+    }, 4000);
+  };
+
   const sendSMS = async () => {
     if (!selectedOrder) return;
     setSendingSMS(true);
@@ -354,9 +373,11 @@ export default function MyOrdersScreen() {
         setMessageStatus({ type: 'success', message: 'SMS sent successfully.' });
       } else {
         setMessageStatus({ type: 'error', message: response.error || 'Failed to send SMS' });
+        scheduleErrorClear();
       }
     } catch (err: any) {
       setMessageStatus({ type: 'error', message: err.message || 'Failed to send SMS' });
+      scheduleErrorClear();
     } finally {
       setSendingSMS(false);
     }
@@ -374,9 +395,11 @@ export default function MyOrdersScreen() {
         setMessageStatus({ type: 'success', message: 'WhatsApp message sent successfully.' });
       } else {
         setMessageStatus({ type: 'error', message: response.error || 'Failed to send WhatsApp' });
+        scheduleErrorClear();
       }
     } catch (err: any) {
       setMessageStatus({ type: 'error', message: err.message || 'Failed to send WhatsApp' });
+      scheduleErrorClear();
     } finally {
       setSendingWhatsApp(false);
     }

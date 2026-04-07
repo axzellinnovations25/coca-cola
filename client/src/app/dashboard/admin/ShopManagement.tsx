@@ -318,7 +318,7 @@ export default function ShopManagement() {
         }),
       });
       setShowAddModal(false);
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Shop added successfully!');
     } catch (err: any) {
       setFormError(err.message);
@@ -349,7 +349,7 @@ export default function ShopManagement() {
       });
       setShowEditModal(false);
       setEditShop(null);
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Shop updated successfully!');
     } catch (err: any) {
       setFormError(err.message);
@@ -364,7 +364,7 @@ export default function ShopManagement() {
     setFormLoading(true);
     try {
       await apiFetch(`/api/marudham/shops/${id}`, { method: 'DELETE' });
-      triggerRefresh();
+      await triggerRefresh();
       showToast('success', 'Shop deleted successfully!');
     } catch (err: any) {
       alert(err.message);
@@ -393,77 +393,86 @@ export default function ShopManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Page Title */}
-      <div className="flex items-center gap-3">
-        <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-        </svg>
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Shop Management</h1>
-          <p className="text-gray-600 text-sm">Manage shops and assign sales representatives</p>
+
+      {/* Page Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center">
+            <svg className="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Shop Management</h1>
+            <p className="text-sm text-gray-500">Manage shops and assign sales representatives</p>
+          </div>
         </div>
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
-          <div className="flex flex-col items-start">
-            <span className="text-blue-600 text-sm font-medium mb-1">Total Shops</span>
-            <span className="text-xl font-bold text-blue-800">{shops.length}</span>
-            <span className="text-xs text-gray-500 mt-1">Registered shops</span>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl border border-blue-100 shadow-sm p-5">
+          <div className="w-9 h-9 bg-blue-50 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
+            </svg>
           </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Total Shops</p>
+          <p className="text-2xl font-bold text-gray-900">{shops.length}</p>
         </div>
-        <div className="bg-green-50 rounded-lg border border-green-200 p-4">
-          <div className="flex flex-col items-start">
-            <span className="text-green-700 text-sm font-medium mb-1">Assigned Shops</span>
-            <span className="text-xl font-bold text-green-800">
-              {shops.filter(shop => shop.sales_rep_id).length}
-            </span>
-            <span className="text-xs text-gray-500 mt-1">With sales reps</span>
+        <div className="bg-white rounded-xl border border-green-100 shadow-sm p-5">
+          <div className="w-9 h-9 bg-green-50 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Assigned</p>
+          <p className="text-2xl font-bold text-gray-900">{shops.filter(shop => shop.sales_rep_id).length}</p>
         </div>
-        <div className="bg-purple-50 rounded-lg border border-purple-200 p-4">
-          <div className="flex flex-col items-start">
-            <span className="text-purple-700 text-sm font-medium mb-1">Unassigned Shops</span>
-            <span className="text-xl font-bold text-purple-800">
-              {shops.filter(shop => !shop.sales_rep_id).length}
-            </span>
-            <span className="text-xs text-gray-500 mt-1">Need assignment</span>
+        <div className="bg-white rounded-xl border border-violet-100 shadow-sm p-5">
+          <div className="w-9 h-9 bg-violet-50 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Unassigned</p>
+          <p className="text-2xl font-bold text-gray-900">{shops.filter(shop => !shop.sales_rep_id).length}</p>
         </div>
-        <div className="bg-orange-50 rounded-lg border border-orange-200 p-4">
-          <div className="flex flex-col items-start">
-            <span className="text-orange-700 text-sm font-medium mb-1">Avg Bill Limit</span>
-            <span className="text-xl font-bold text-orange-800">
-              {shops.length > 0 
-                ? (shops.reduce((sum, shop) => sum + Number(shop.max_bill_amount || 0), 0) / shops.length).toFixed(0)
-                : '0'
-              } LKR
-            </span>
-            <span className="text-xs text-gray-500 mt-1">Per shop</span>
+        <div className="bg-white rounded-xl border border-orange-100 shadow-sm p-5">
+          <div className="w-9 h-9 bg-orange-50 rounded-lg flex items-center justify-center mb-3">
+            <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Avg Bill Limit</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {shops.length > 0
+              ? (shops.reduce((sum, shop) => sum + Number(shop.max_bill_amount || 0), 0) / shops.length).toFixed(0)
+              : '0'
+            }
+          </p>
         </div>
       </div>
 
-      {/* Shop Management Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-1">Shop Directory</h2>
-            <p className="text-gray-600 text-sm">Manage shops and assign sales representatives</p>
+      {/* Table Container */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Toolbar */}
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between p-4 border-b border-gray-100">
+          <div className="relative w-full sm:w-72">
+            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Search by name, address, phone, or sales rep..."
+              className="pl-9 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900 w-full"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+            />
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <button
-              className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg font-medium flex items-center gap-2 transition-colors"
-              onClick={openAddModal}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-              </svg>
-              Add Shop
-            </button>
-            <button
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium flex items-center gap-2 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold transition-colors"
               onClick={exportCSV}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -471,254 +480,318 @@ export default function ShopManagement() {
               </svg>
               Export
             </button>
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+              onClick={openAddModal}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              </svg>
+              Add Shop
+            </button>
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="mb-6">
-          <div className="relative">
-            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        {/* Refreshing banner */}
+        {isRefreshing && (
+          <div className="flex items-center justify-center gap-2 py-2 bg-violet-50 border-b border-violet-100 text-violet-600 text-sm">
+            <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <input
-              type="text"
-              placeholder="Search by name, address, phone, or sales rep..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
-            />
+            Refreshing data...
           </div>
-        </div>
+        )}
 
+        {/* Table body states */}
         {loading ? (
-          <div className="text-gray-400 text-center py-8">Loading shops...</div>
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
+          </div>
         ) : error ? (
-          <div className="text-red-500 text-center py-8">{error}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            {isRefreshing && (
-              <div className="text-center py-2 bg-blue-50 border-b border-blue-200">
-                <div className="flex items-center justify-center text-blue-600 text-sm">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Refreshing data...
-                </div>
-              </div>
-            )}
-            <table className="min-w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('name')}>
-                    <div className="flex items-center">
-                      Name
-                      {(loading || isRefreshing) && (
-                        <svg className="animate-spin ml-2 h-3 w-3 text-purple-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      )}
-                      {sortBy === 'name' && (sortDir === 'asc' ? '▲' : '▼')}
-                    </div>
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('address')}>
-                    Address {sortBy === 'address' && (sortDir === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('phone')}>
-                    Phone {sortBy === 'phone' && (sortDir === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('sales_rep')}>
-                    Sales Rep {sortBy === 'sales_rep' && (sortDir === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('max_bill_amount')}>
-                    Max Bill Amount {sortBy === 'max_bill_amount' && (sortDir === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('max_active_bills')}>
-                    Max Active Bills {sortBy === 'max_active_bills' && (sortDir === 'asc' ? '▲' : '▼')}
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-gray-700 text-sm">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginatedShops.map(shop => (
-                  <tr key={shop.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-4">
-                      <div className="font-medium text-gray-900 text-sm">{shop.name}</div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="text-gray-700 text-sm">{shop.address}</div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="text-gray-700 text-sm">{formatPhoneForDisplay(shop.phone)}</div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className={`font-medium text-sm ${shop.sales_rep_first_name ? 'text-green-600' : 'text-gray-400'}`}>
-                        {shop.sales_rep_first_name ? `${shop.sales_rep_first_name} ${shop.sales_rep_last_name}` : 'Unassigned'}
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="font-semibold text-purple-600 text-sm">
-                        {typeof shop.max_bill_amount === 'number' ? shop.max_bill_amount.toFixed(2) : Number(shop.max_bill_amount).toFixed(2)} LKR
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="font-semibold text-gray-900 text-sm">{shop.max_active_bills}</div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          className="text-gray-400 hover:text-gray-600 transition-colors"
-                          title="View"
-                          onClick={() => handleViewShopDetails(shop.id)}
-                        >
-                          👁️
-                        </button>
-                        <button
-                          className="text-purple-600 hover:text-purple-700 transition-colors"
-                          onClick={() => openEditModal(shop)}
-                          title="Edit"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="text-red-500 hover:text-red-700 transition-colors"
-                          onClick={() => handleDeleteShop(shop.id)}
-                          title="Delete"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="flex justify-between items-center mt-6">
-            <span className="text-sm text-gray-600">
-              Showing {page * SHOPS_PER_PAGE - SHOPS_PER_PAGE + 1} to {Math.min(page * SHOPS_PER_PAGE, filteredShops.length)} of {filteredShops.length} entries
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                disabled={page === 1}
-                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-              >
-                Previous
-              </button>
-              <span className="text-sm text-gray-700">Page {page} of {totalPages}</span>
-              <button
-                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={page === totalPages}
-                className="px-3 py-1 bg-white border border-gray-300 text-gray-700 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-              >
-                Next
-              </button>
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+              <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
             </div>
+            <p className="text-sm text-red-600 font-medium">{error}</p>
           </div>
-        )}
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('name')}>
+                      <div className="flex items-center gap-1">
+                        Name
+                        {isRefreshing && (
+                          <svg className="animate-spin h-3 w-3 text-violet-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        )}
+                        {sortBy === 'name' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('address')}>
+                      <div className="flex items-center gap-1">
+                        Address
+                        {sortBy === 'address' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('phone')}>
+                      <div className="flex items-center gap-1">
+                        Phone
+                        {sortBy === 'phone' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('sales_rep')}>
+                      <div className="flex items-center gap-1">
+                        Sales Rep
+                        {sortBy === 'sales_rep' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('max_bill_amount')}>
+                      <div className="flex items-center gap-1">
+                        Max Bill
+                        {sortBy === 'max_bill_amount' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('max_active_bills')}>
+                      <div className="flex items-center gap-1">
+                        Max Bills
+                        {sortBy === 'max_active_bills' && <span className="text-violet-500">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                      </div>
+                    </th>
+                    <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginatedShops.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>
+                        <div className="flex flex-col items-center justify-center py-16 gap-3">
+                          <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center">
+                            <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
+                            </svg>
+                          </div>
+                          <p className="text-sm font-bold text-gray-700">No shops found</p>
+                          <p className="text-sm text-gray-400">Try adjusting your search or add a new shop.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedShops.map(shop => (
+                      <tr key={shop.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
+                        <td className="py-3.5 px-5 text-sm">
+                          <span className="font-semibold text-gray-900">{shop.name}</span>
+                        </td>
+                        <td className="py-3.5 px-5 text-sm text-gray-600">{shop.address}</td>
+                        <td className="py-3.5 px-5 text-sm text-gray-600">{formatPhoneForDisplay(shop.phone)}</td>
+                        <td className="py-3.5 px-5 text-sm">
+                          {shop.sales_rep_first_name ? (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                              {shop.sales_rep_first_name} {shop.sales_rep_last_name}
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
+                              Unassigned
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-5 text-sm font-semibold text-violet-600">
+                          {typeof shop.max_bill_amount === 'number' ? shop.max_bill_amount.toFixed(2) : Number(shop.max_bill_amount).toFixed(2)} LKR
+                        </td>
+                        <td className="py-3.5 px-5 text-sm font-semibold text-gray-900">{shop.max_active_bills}</td>
+                        <td className="py-3.5 px-5 text-sm">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              className="px-2.5 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-medium transition-colors"
+                              title="View Details"
+                              onClick={() => handleViewShopDetails(shop.id)}
+                            >
+                              View
+                            </button>
+                            <button
+                              className="px-2.5 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-medium transition-colors"
+                              onClick={() => openEditModal(shop)}
+                              title="Edit"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium transition-colors"
+                              onClick={() => handleDeleteShop(shop.id)}
+                              title="Delete"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-        {filteredShops.length === 0 && (
-          <div className="text-center py-8 text-gray-400">
-            No shops found matching your criteria.
-          </div>
+            {/* Pagination */}
+            <div className="flex items-center justify-between px-5 py-3.5 border-t border-gray-100 bg-white">
+              <p className="text-sm text-gray-500">
+                {filteredShops.length === 0
+                  ? 'No results'
+                  : `Showing ${(page - 1) * SHOPS_PER_PAGE + 1}–${Math.min(page * SHOPS_PER_PAGE, filteredShops.length)} of ${filteredShops.length}`
+                }
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1 bg-violet-600 text-white text-sm rounded-lg font-semibold">
+                  {page}
+                </span>
+                <span className="text-sm text-gray-400">of {totalPages}</span>
+                <button
+                  onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
+
       {/* Add Shop Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-md p-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
             <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
               onClick={() => setShowAddModal(false)}
               aria-label="Close"
             >
-              &times;
+              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            <h3 className="text-lg font-semibold text-gray-900 mb-6 text-center">Add Shop</h3>
-            <form className="flex flex-col gap-4" onSubmit={handleAddShop}>
-              <input
-                ref={firstInputRef}
-                type="text"
-                placeholder="Shop Name"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Address"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.address}
-                onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Owner's NIC"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.owner_nic}
-                onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
-                required
-              />
-              <input
-                type="email"
-                placeholder="Email (optional)"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              />
-              <input
-                type="text"
-                placeholder="Phone No (+94XXXXXXXXX)"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.phone}
-                onChange={e => handlePhoneChange(e.target.value)}
-                required
-              />
-              <div className="text-xs text-gray-500 -mt-2">
-                Format: +94 followed by 9 digits (e.g., +94712345678)
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
               </div>
-              <select
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.sales_rep_id}
-                onChange={e => setForm(f => ({ ...f, sales_rep_id: e.target.value }))}
-              >
-                <option value="">Assign Sales Rep (optional)</option>
-                {salesReps.map(rep => (
-                  <option key={rep.id} value={rep.id}>{rep.first_name} {rep.last_name}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Max Bill Amount"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.max_bill_amount}
-                onChange={e => setForm(f => ({ ...f, max_bill_amount: e.target.value }))}
-                required
-              />
-              <input
-                type="number"
-                min="0"
-                step="1"
-                placeholder="Max Active Bills"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.max_active_bills}
-                onChange={e => setForm(f => ({ ...f, max_active_bills: e.target.value }))}
-                required
-              />
-              {formError && <div className="text-red-500 text-sm text-center">{formError}</div>}
+              <h3 className="text-lg font-bold text-gray-900">Add Shop</h3>
+            </div>
+            <form className="flex flex-col gap-4" onSubmit={handleAddShop}>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Shop Name</label>
+                <input
+                  ref={firstInputRef}
+                  type="text"
+                  placeholder="e.g. Perera General Store"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Address</label>
+                <input
+                  type="text"
+                  placeholder="Street, City"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.address}
+                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Owner NIC</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 123456789V"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.owner_nic}
+                  onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Email <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <input
+                  type="email"
+                  placeholder="owner@email.com"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Phone</label>
+                <input
+                  type="text"
+                  placeholder="+94XXXXXXXXX"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.phone}
+                  onChange={e => handlePhoneChange(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">Format: +94 followed by 9 digits (e.g., +94712345678)</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Sales Rep <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <select
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.sales_rep_id}
+                  onChange={e => setForm(f => ({ ...f, sales_rep_id: e.target.value }))}
+                >
+                  <option value="">Select a sales rep...</option>
+                  {salesReps.map(rep => (
+                    <option key={rep.id} value={rep.id}>{rep.first_name} {rep.last_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Max Bill Amount (LKR)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.max_bill_amount}
+                  onChange={e => setForm(f => ({ ...f, max_bill_amount: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Max Active Bills</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.max_active_bills}
+                  onChange={e => setForm(f => ({ ...f, max_active_bills: e.target.value }))}
+                  required
+                />
+              </div>
+              {formError && <p className="text-red-500 text-sm text-center">{formError}</p>}
               <button
                 type="submit"
-                className="w-full py-2 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium transition-colors mt-2 disabled:opacity-60"
+                className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors mt-2 disabled:opacity-60"
                 disabled={formLoading}
               >
                 {formLoading ? 'Adding...' : 'Add Shop'}
@@ -727,96 +800,128 @@ export default function ShopManagement() {
           </div>
         </div>
       )}
+
       {/* Edit Shop Modal */}
       {showEditModal && editShop && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-md p-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 relative max-h-[90vh] overflow-y-auto">
             <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
               onClick={() => setShowEditModal(false)}
               aria-label="Close"
             >
-              &times;
+              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            <h3 className="text-lg font-semibold text-gray-900 mb-6 text-center">Edit Shop</h3>
-            <form className="flex flex-col gap-4" onSubmit={handleEditShop}>
-              <input
-                ref={firstInputRef}
-                type="text"
-                placeholder="Shop Name"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Address"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.address}
-                onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                required
-              />
-              <input
-                type="text"
-                placeholder="Owner's NIC"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.owner_nic}
-                onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
-                required
-              />
-              <input
-                type="email"
-                placeholder="Email (optional)"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              />
-              <input
-                type="text"
-                placeholder="Phone No (+94XXXXXXXXX)"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.phone}
-                onChange={e => handlePhoneChange(e.target.value)}
-                required
-              />
-              <div className="text-xs text-gray-500 -mt-2">
-                Format: +94 followed by 9 digits (e.g., +94712345678)
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
               </div>
-              <select
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.sales_rep_id}
-                onChange={e => setForm(f => ({ ...f, sales_rep_id: e.target.value }))}
-              >
-                <option value="">Assign Sales Rep (optional)</option>
-                {salesReps.map(rep => (
-                  <option key={rep.id} value={rep.id}>{rep.first_name} {rep.last_name}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="Max Bill Amount"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.max_bill_amount}
-                onChange={e => setForm(f => ({ ...f, max_bill_amount: e.target.value }))}
-                required
-              />
-              <input
-                type="number"
-                min="0"
-                step="1"
-                placeholder="Max Active Bills"
-                className="px-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                value={form.max_active_bills}
-                onChange={e => setForm(f => ({ ...f, max_active_bills: e.target.value }))}
-                required
-              />
-              {formError && <div className="text-red-500 text-sm text-center">{formError}</div>}
+              <h3 className="text-lg font-bold text-gray-900">Edit Shop</h3>
+            </div>
+            <form className="flex flex-col gap-4" onSubmit={handleEditShop}>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Shop Name</label>
+                <input
+                  ref={firstInputRef}
+                  type="text"
+                  placeholder="e.g. Perera General Store"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Address</label>
+                <input
+                  type="text"
+                  placeholder="Street, City"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.address}
+                  onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Owner NIC</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 123456789V"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.owner_nic}
+                  onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Email <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <input
+                  type="email"
+                  placeholder="owner@email.com"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Phone</label>
+                <input
+                  type="text"
+                  placeholder="+94XXXXXXXXX"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.phone}
+                  onChange={e => handlePhoneChange(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-gray-400 mt-1">Format: +94 followed by 9 digits (e.g., +94712345678)</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Sales Rep <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                <select
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.sales_rep_id}
+                  onChange={e => setForm(f => ({ ...f, sales_rep_id: e.target.value }))}
+                >
+                  <option value="">Select a sales rep...</option>
+                  {salesReps.map(rep => (
+                    <option key={rep.id} value={rep.id}>{rep.first_name} {rep.last_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Max Bill Amount (LKR)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.max_bill_amount}
+                  onChange={e => setForm(f => ({ ...f, max_bill_amount: e.target.value }))}
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Max Active Bills</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.max_active_bills}
+                  onChange={e => setForm(f => ({ ...f, max_active_bills: e.target.value }))}
+                  required
+                />
+              </div>
+              {formError && <p className="text-red-500 text-sm text-center">{formError}</p>}
               <button
                 type="submit"
-                className="w-full py-2 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 font-medium transition-colors mt-2 disabled:opacity-60"
+                className="w-full py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold transition-colors mt-2 disabled:opacity-60"
                 disabled={formLoading}
               >
                 {formLoading ? 'Saving...' : 'Save Changes'}
@@ -825,119 +930,136 @@ export default function ShopManagement() {
           </div>
         </div>
       )}
-      
+
       {/* Shop Details Modal */}
       {showDetailsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white rounded-lg border border-gray-200 w-full max-w-6xl max-h-[90vh] overflow-y-auto p-6 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto p-6 relative">
             <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold"
+              className="absolute top-4 right-4 w-8 h-8 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-colors"
               onClick={() => setShowDetailsModal(false)}
               aria-label="Close"
             >
-              &times;
+              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
-            
+
             {loadingShopDetails ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="flex items-center gap-3">
-                  <div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-gray-600 font-medium">Loading shop details...</span>
-                </div>
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
               </div>
             ) : shopDetailsError ? (
-              <div className="text-center py-12">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex flex-col items-center justify-center py-20 gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                  <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <p className="text-red-600 font-medium">{shopDetailsError}</p>
+                <p className="text-sm text-red-600 font-medium">{shopDetailsError}</p>
               </div>
             ) : selectedShopDetails ? (
               <div className="space-y-6">
-                {/* Header */}
-                <div className="border-b border-gray-200 pb-4">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Shop Details</h3>
-                  <p className="text-gray-600 text-sm">{selectedShopDetails.name}</p>
-                </div>
-
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
-                    <div className="text-blue-600 text-sm font-medium mb-1">Current Outstanding</div>
-                    <div className={`text-xl font-bold ${selectedShopDetails.current_outstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {selectedShopDetails.current_outstanding.toFixed(2)} LKR
-                    </div>
+                {/* Modal Header */}
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-violet-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5" />
+                    </svg>
                   </div>
-                  <div className="bg-green-50 rounded-lg border border-green-200 p-4">
-                    <div className="text-green-600 text-sm font-medium mb-1">Available Credit</div>
-                    <div className="text-xl font-bold text-green-700">
-                      {selectedShopDetails.available_credit.toFixed(2)} LKR
-                    </div>
-                  </div>
-                  <div className="bg-orange-50 rounded-lg border border-orange-200 p-4">
-                    <div className="text-orange-600 text-sm font-medium mb-1">Active Bills</div>
-                    <div className="text-xl font-bold text-orange-700">
-                      {selectedShopDetails.active_bills}
-                    </div>
-                  </div>
-                  <div className="bg-purple-50 rounded-lg border border-purple-200 p-4">
-                    <div className="text-purple-600 text-sm font-medium mb-1">Pending Orders</div>
-                    <div className="text-xl font-bold text-purple-700">
-                      {selectedShopDetails.pending_orders.length}
-                    </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">{selectedShopDetails.name}</h3>
+                    <p className="text-sm text-gray-500">Shop Details</p>
                   </div>
                 </div>
 
-                {/* Shop Information */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-gray-50 rounded-lg p-4 text-gray-900">
-                    <h4 className="font-semibold text-gray-900 mb-3">Shop Information</h4>
-                    <div className="space-y-2 text-sm">
-                      <div><span className="font-medium">Name:</span> {selectedShopDetails.name}</div>
-                      <div><span className="font-medium">Address:</span> {selectedShopDetails.address}</div>
-                      <div><span className="font-medium">Phone:</span> {selectedShopDetails.phone}</div>
-                      <div><span className="font-medium">Email:</span> {selectedShopDetails.email || 'N/A'}</div>
-                      <div><span className="font-medium">Owner NIC:</span> {selectedShopDetails.owner_nic}</div>
+                {/* Detail Summary Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white rounded-xl border border-red-100 shadow-sm p-4">
+                    <div className="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center mb-2">
+                      <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                     </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Outstanding</p>
+                    <p className={`text-xl font-bold ${selectedShopDetails.current_outstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {selectedShopDetails.current_outstanding.toFixed(2)}
+                    </p>
                   </div>
-
-                  <div className="bg-gray-50 rounded-lg p-4 text-gray-900">
-                    <h4 className="font-semibold text-gray-900 mb-3">Sales Representative</h4>
-                    <div className="space-y-2 text-sm">
-                      <div><span className="font-medium">Name:</span> {selectedShopDetails.sales_rep_first_name ? `${selectedShopDetails.sales_rep_first_name} ${selectedShopDetails.sales_rep_last_name}` : 'Unassigned'}</div>
-                      <div><span className="font-medium">Max Bill Amount:</span> {Number(selectedShopDetails.max_bill_amount).toFixed(2)} LKR</div>
-                      <div><span className="font-medium">Max Active Bills:</span> {selectedShopDetails.max_active_bills}</div>
+                  <div className="bg-white rounded-xl border border-green-100 shadow-sm p-4">
+                    <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center mb-2">
+                      <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
                     </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Available Credit</p>
+                    <p className="text-xl font-bold text-green-700">{selectedShopDetails.available_credit.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-orange-100 shadow-sm p-4">
+                    <div className="w-8 h-8 bg-orange-50 rounded-lg flex items-center justify-center mb-2">
+                      <svg className="w-4 h-4 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Active Bills</p>
+                    <p className="text-xl font-bold text-gray-900">{selectedShopDetails.active_bills}</p>
+                  </div>
+                  <div className="bg-white rounded-xl border border-violet-100 shadow-sm p-4">
+                    <div className="w-8 h-8 bg-violet-50 rounded-lg flex items-center justify-center mb-2">
+                      <svg className="w-4 h-4 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Pending Orders</p>
+                    <p className="text-xl font-bold text-gray-900">{selectedShopDetails.pending_orders.length}</p>
+                  </div>
+                </div>
+
+                {/* Info Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Shop Information</h4>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Name</dt><dd className="text-gray-900">{selectedShopDetails.name}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Address</dt><dd className="text-gray-900">{selectedShopDetails.address}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Phone</dt><dd className="text-gray-900">{selectedShopDetails.phone}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Email</dt><dd className="text-gray-900">{selectedShopDetails.email || 'N/A'}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Owner NIC</dt><dd className="text-gray-900">{selectedShopDetails.owner_nic}</dd></div>
+                    </dl>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Sales Representative</h4>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Name</dt><dd className="text-gray-900">{selectedShopDetails.sales_rep_first_name ? `${selectedShopDetails.sales_rep_first_name} ${selectedShopDetails.sales_rep_last_name}` : 'Unassigned'}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Max Bill</dt><dd className="text-gray-900">{Number(selectedShopDetails.max_bill_amount).toFixed(2)} LKR</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Max Active</dt><dd className="text-gray-900">{selectedShopDetails.max_active_bills}</dd></div>
+                    </dl>
                   </div>
                 </div>
 
                 {/* Pending Orders */}
                 {selectedShopDetails.pending_orders.length > 0 && (
                   <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Pending Orders</h4>
-                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Pending Orders</h4>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                       <table className="min-w-full">
                         <thead>
-                          <tr className="bg-gray-50">
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Date</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Sales Rep</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Total</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Items</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Notes</th>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Date</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Sales Rep</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Total</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Items</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Notes</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200">
+                        <tbody>
                           {selectedShopDetails.pending_orders.map((order) => (
-                            <tr key={order.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-sm">{new Date(order.created_at).toLocaleDateString()}</td>
-                              <td className="px-4 py-2 text-sm">
-                                {order.sales_rep_first_name ? `${order.sales_rep_first_name} ${order.sales_rep_last_name}` : 'N/A'}
-                              </td>
-                              <td className="px-4 py-2 font-semibold text-sm">{order.total.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm">{order.item_count}</td>
-                              <td className="px-4 py-2 text-sm text-gray-600">{order.notes || '-'}</td>
+                            <tr key={order.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
+                              <td className="py-3 px-4 text-sm text-gray-600">{new Date(order.created_at).toLocaleDateString()}</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{order.sales_rep_first_name ? `${order.sales_rep_first_name} ${order.sales_rep_last_name}` : 'N/A'}</td>
+                              <td className="py-3 px-4 text-sm font-semibold text-violet-600">{order.total.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{order.item_count}</td>
+                              <td className="py-3 px-4 text-sm text-gray-500">{order.notes || '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -949,30 +1071,28 @@ export default function ShopManagement() {
                 {/* Active Bills */}
                 {selectedShopDetails.active_bills_details.length > 0 && (
                   <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Active Bills</h4>
-                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Active Bills</h4>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                       <table className="min-w-full">
                         <thead>
-                          <tr className="bg-gray-50">
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Date</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Sales Rep</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Total</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Collected</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Outstanding</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Items</th>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Date</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Sales Rep</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Total</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Collected</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Outstanding</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Items</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200">
+                        <tbody>
                           {selectedShopDetails.active_bills_details.map((bill) => (
-                            <tr key={bill.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-sm">{new Date(bill.created_at).toLocaleDateString()}</td>
-                              <td className="px-4 py-2 text-sm">
-                                {bill.sales_rep_first_name ? `${bill.sales_rep_first_name} ${bill.sales_rep_last_name}` : 'N/A'}
-                              </td>
-                              <td className="px-4 py-2 font-semibold text-sm">{bill.total.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm text-green-600">{bill.collected.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm text-red-600 font-semibold">{bill.outstanding.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm">{bill.item_count}</td>
+                            <tr key={bill.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
+                              <td className="py-3 px-4 text-sm text-gray-600">{new Date(bill.created_at).toLocaleDateString()}</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{bill.sales_rep_first_name ? `${bill.sales_rep_first_name} ${bill.sales_rep_last_name}` : 'N/A'}</td>
+                              <td className="py-3 px-4 text-sm font-semibold text-gray-900">{bill.total.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-green-600 font-medium">{bill.collected.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-red-600 font-semibold">{bill.outstanding.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{bill.item_count}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -984,28 +1104,26 @@ export default function ShopManagement() {
                 {/* Recent Payments */}
                 {selectedShopDetails.recent_payments.length > 0 && (
                   <div>
-                    <h4 className="font-semibold text-gray-900 mb-3">Recent Payments</h4>
-                    <div className="overflow-hidden rounded-lg border border-gray-200">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Recent Payments</h4>
+                    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                       <table className="min-w-full">
                         <thead>
-                          <tr className="bg-gray-50">
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Date</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Sales Rep</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Amount</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Order Total</th>
-                            <th className="px-4 py-2 text-left font-medium text-gray-700 text-sm">Notes</th>
+                          <tr className="bg-gray-50 border-b border-gray-200">
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Date</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Sales Rep</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Amount</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Order Total</th>
+                            <th className="py-3 px-4 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Notes</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200">
+                        <tbody>
                           {selectedShopDetails.recent_payments.map((payment) => (
-                            <tr key={payment.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-2 text-sm">{new Date(payment.created_at).toLocaleDateString()}</td>
-                              <td className="px-4 py-2 text-sm">
-                                {payment.sales_rep_first_name ? `${payment.sales_rep_first_name} ${payment.sales_rep_last_name}` : 'N/A'}
-                              </td>
-                              <td className="px-4 py-2 font-semibold text-sm text-green-600">{payment.amount.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm">{payment.order_total.toFixed(2)} LKR</td>
-                              <td className="px-4 py-2 text-sm text-gray-600">{payment.notes || '-'}</td>
+                            <tr key={payment.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
+                              <td className="py-3 px-4 text-sm text-gray-600">{new Date(payment.created_at).toLocaleDateString()}</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{payment.sales_rep_first_name ? `${payment.sales_rep_first_name} ${payment.sales_rep_last_name}` : 'N/A'}</td>
+                              <td className="py-3 px-4 text-sm font-semibold text-green-600">{payment.amount.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-gray-600">{payment.order_total.toFixed(2)} LKR</td>
+                              <td className="py-3 px-4 text-sm text-gray-500">{payment.notes || '-'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1014,21 +1132,24 @@ export default function ShopManagement() {
                   </div>
                 )}
 
-                {/* Action Buttons */}
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                {/* Footer Actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                   <button
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold transition-colors"
                     onClick={() => setShowDetailsModal(false)}
                   >
                     Close
                   </button>
                   <button
-                    className="px-4 py-2 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded font-medium transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
                     onClick={() => {
                       setShowDetailsModal(false);
                       openEditModal(selectedShopDetails as any);
                     }}
                   >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
                     Edit Shop
                   </button>
                 </div>
@@ -1037,35 +1158,33 @@ export default function ShopManagement() {
           </div>
         </div>
       )}
-      
+
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 animate-fadeIn">
-          <div className={`rounded-lg p-4 shadow-lg border ${
-            toast.type === 'success' 
-              ? 'bg-green-50 border-green-200 text-green-800' 
-              : 'bg-red-50 border-red-200 text-red-800'
-          }`}>
-            <div className="flex items-center">
+        <div className="fixed top-4 right-4 z-50">
+          <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-4 flex items-start gap-3 min-w-[280px]">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${toast.type === 'success' ? 'bg-green-100' : 'bg-red-100'}`}>
               {toast.type === 'success' ? (
-                <svg className="w-5 h-5 text-green-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
               )}
-              <span className="font-medium">{toast.message}</span>
-              <button
-                onClick={() => setToast(null)}
-                className="ml-3 text-gray-400 hover:text-gray-600"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
             </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900">{toast.message}</p>
+            </div>
+            <button
+              onClick={() => setToast(null)}
+              className="w-6 h-6 rounded-md hover:bg-gray-100 flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       )}
