@@ -5,7 +5,7 @@ const { randomUUID } = require('crypto');
 async function logProductAction({ product_id, user_id, action, details }) {
   const logId = randomUUID();
   await pool.query(
-    'INSERT INTO product_logs (id, product_id, user_id, action, details) VALUES ($1, $2, $3, $4, $5)',
+    'INSERT INTO product_logs (id, product_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
     [logId, product_id, user_id, action, details ? JSON.stringify(details) : null]
   );
 }
@@ -67,7 +67,7 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
   }
   
   await pool.query(
-    'INSERT INTO order_logs (order_id, sales_rep_id, action, details) VALUES ($1, $2, $3, $4)',
+    'INSERT INTO order_logs (order_id, sales_rep_id, action, details, created_at) VALUES ($1, $2, $3, $4, NOW())',
     [order_id, sales_rep_id, action, details ? JSON.stringify(details) : null]
   );
 }
@@ -75,7 +75,7 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
 async function logPaymentAction({ payment_id, order_id, sales_rep_id, action, details }) {
   const logId = randomUUID();
   await pool.query(
-    'INSERT INTO payment_logs (id, payment_id, order_id, sales_rep_id, action, details) VALUES ($1, $2, $3, $4, $5, $6)',
+    'INSERT INTO payment_logs (id, payment_id, order_id, sales_rep_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())',
     [logId, payment_id, order_id, sales_rep_id, action, details ? JSON.stringify(details) : null]
   );
 }
@@ -182,7 +182,7 @@ async function deleteShop(id, user_id) {
 
 async function logShopAction({ shop_id, user_id, action, details }) {
   await pool.query(
-    'INSERT INTO shop_logs (shop_id, user_id, action, details) VALUES ($1, $2, $3, $4)',
+    'INSERT INTO shop_logs (shop_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, NOW())',
     [shop_id, user_id, action, details ? JSON.stringify(details) : null]
   );
 }
@@ -1321,9 +1321,9 @@ async function getOrderPayments(order_id) {
 
 async function logSalesQuantityAction({ order_id, product_id, sales_rep_id, shop_id, quantity_sold, unit_price, total_amount, previous_stock_quantity, new_stock_quantity, log_details }) {
   await pool.query(
-    `INSERT INTO sales_quantity_logs 
-     (order_id, product_id, sales_rep_id, shop_id, quantity_sold, unit_price, total_amount, previous_stock_quantity, new_stock_quantity, log_details) 
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    `INSERT INTO sales_quantity_logs
+     (order_id, product_id, sales_rep_id, shop_id, quantity_sold, unit_price, total_amount, previous_stock_quantity, new_stock_quantity, log_details, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
     [order_id, product_id, sales_rep_id, shop_id, quantity_sold, unit_price, total_amount, previous_stock_quantity, new_stock_quantity, log_details ? JSON.stringify(log_details) : null]
   );
 }

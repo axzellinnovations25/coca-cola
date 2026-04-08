@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { apiFetch } from '../../../utils/api';
 
+function formatDate(d: string | null | undefined): string {
+  if (!d) return '-';
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? '-' : date.toLocaleString();
+}
+
 interface Log {
   id: string;
   created_at: string;
@@ -158,9 +164,9 @@ export default function OrderLogTable({ logs }: { logs: Log[] }) {
     let aVal = a[sortBy];
     let bVal = b[sortBy];
     if (sortBy === 'created_at') {
-      return sortDir === 'asc'
-        ? new Date(aVal ?? '').getTime() - new Date(bVal ?? '').getTime()
-        : new Date(bVal ?? '').getTime() - new Date(aVal ?? '').getTime();
+      const aTime = aVal ? new Date(aVal).getTime() : 0;
+      const bTime = bVal ? new Date(bVal).getTime() : 0;
+      return sortDir === 'asc' ? aTime - bTime : bTime - aTime;
     }
     if (typeof aVal === 'string' && typeof bVal === 'string') {
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
@@ -252,7 +258,7 @@ export default function OrderLogTable({ logs }: { logs: Log[] }) {
                   onClick={() => setExpanded(isExpanded ? null : log.id)}
                   title="Click to expand/collapse details"
                 >
-                  <td className="px-4 py-2 text-xs text-gray-400">{new Date(String(log.created_at)).toLocaleString()}</td>
+                  <td className="px-4 py-2 text-xs text-gray-400">{formatDate(log.created_at)}</td>
                   <td className="px-4 py-2 font-medium">{log.shop_name || '-'}</td>
                   <td className="px-4 py-2">{repName}</td>
                   <td className="px-4 py-2 capitalize">{log.sales_rep_role || '-'}</td>

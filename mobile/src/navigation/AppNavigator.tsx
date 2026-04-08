@@ -74,6 +74,8 @@ function MoreNavigator() {
           fontSize: 20,
           color: colors.text,
         },
+        headerBackTitle: '',
+        headerBackButtonDisplayMode: 'minimal',
       }}
     >
       <MoreStack.Screen name="More" component={MoreMenuScreen} />

@@ -75,9 +75,9 @@ export default function ShopLogTable({ logs }: { logs: Log[] }) {
     let aVal = a[sortBy];
     let bVal = b[sortBy];
     if (sortBy === 'created_at') {
-      return sortDir === 'asc'
-        ? new Date(aVal ?? '').getTime() - new Date(bVal ?? '').getTime()
-        : new Date(bVal ?? '').getTime() - new Date(aVal ?? '').getTime();
+      const aTime = aVal ? new Date(aVal).getTime() : 0;
+      const bTime = bVal ? new Date(bVal).getTime() : 0;
+      return sortDir === 'asc' ? aTime - bTime : bTime - aTime;
     }
     if (typeof aVal === 'string' && typeof bVal === 'string') {
       return sortDir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
