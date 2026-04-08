@@ -10,6 +10,7 @@ import {
   NativeModules,
   PermissionsAndroid,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,7 +25,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
-import DismissKeyboard from '../components/DismissKeyboard';
 
 interface Bill {
   id: string;
@@ -136,7 +136,7 @@ const sanitizeCpclLine = (value: string) =>
     .replace(/^\.+/, '')
     .replace(/[^\x20-\x7E]/g, ' ');
 
-const parseDate = (value: string | number | null | undefined) => {
+const parseDate = (value: string | number | Date | null | undefined) => {
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) return value;
   if (typeof value === 'number') {
@@ -696,7 +696,7 @@ export default function BillsCollectionsScreen() {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading bills</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={fetchBills}>
+        <TouchableOpacity style={styles.retry} onPress={() => fetchBills()}>
           <Text style={styles.retryText}>Try again</Text>
         </TouchableOpacity>
       </View>
@@ -704,8 +704,7 @@ export default function BillsCollectionsScreen() {
   }
 
   return (
-    <DismissKeyboard>
-      <View style={styles.container}>
+    <View style={styles.container}>
       <View style={styles.headerCard}>
         <Text style={styles.title}>Bills & Collections</Text>
         <Text style={styles.subtitle}>Track outstanding payments and collections.</Text>
@@ -733,10 +732,11 @@ export default function BillsCollectionsScreen() {
         keyExtractor={(item, index) => `${item.shop_id}-${index}`}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         ListEmptyComponent={<Text style={styles.emptyText}>No bills found.</Text>}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <TouchableOpacity
+            <Pressable
               style={styles.cardRow}
               onPress={() => setExpandedShopId(expandedShopId === item.shop_id ? null : item.shop_id)}
             >
@@ -745,7 +745,7 @@ export default function BillsCollectionsScreen() {
                 <Text style={styles.cardSubtitle}>Outstanding: {item.total_outstanding.toFixed(2)} LKR</Text>
               </View>
               <Text style={styles.cardToggle}>{expandedShopId === item.shop_id ? 'Hide' : 'View'}</Text>
-            </TouchableOpacity>
+            </Pressable>
 
             {expandedShopId === item.shop_id && (
               <View style={styles.billList}>
@@ -761,11 +761,11 @@ export default function BillsCollectionsScreen() {
                     </View>
                     <View style={styles.billActions}>
                       {bill.outstanding > 0 && (
-                        <TouchableOpacity style={styles.billButton} onPress={() => openPaymentModal(bill, item.shop_name)}>
+                        <TouchableOpacity style={[styles.billButton, { flex: 1 }]} onPress={() => openPaymentModal(bill, item.shop_name)}>
                           <Text style={styles.billButtonText}>Record</Text>
                         </TouchableOpacity>
                       )}
-                      <TouchableOpacity style={styles.returnButton} onPress={() => openReturnModal(bill)}>
+                      <TouchableOpacity style={[styles.returnButton, { flex: 1 }]} onPress={() => openReturnModal(bill)}>
                         <Text style={styles.returnButtonText}>Return</Text>
                       </TouchableOpacity>
                     </View>
@@ -1159,7 +1159,6 @@ export default function BillsCollectionsScreen() {
         </KeyboardAvoidingView>
       </Modal>
     </View>
-    </DismissKeyboard>
   );
 }
 
@@ -1253,6 +1252,7 @@ const makeStyles = (colors: ThemeColors) =>
   list: {
     padding: 20,
     gap: 12,
+    paddingBottom: 100,
   },
   emptyText: {
     color: colors.textMuted,
@@ -1297,14 +1297,12 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
+    flexDirection: 'column',
+    gap: 10,
   },
-  billText: {
-    flex: 1,
-  },
+  billText: {},
   billActions: {
+    flexDirection: 'row',
     gap: 8,
   },
   billTitle: {
