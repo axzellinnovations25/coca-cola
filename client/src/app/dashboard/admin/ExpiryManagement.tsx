@@ -1,10 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getSupabaseClient } from '../../../utils/supabase';
-import { apiFetch } from '../../../utils/api';
+import { apiFetch, clearCache } from '../../../utils/api';
 
-interface ExpiryManagementProps {
-  userId: string;
-}
 
 interface Product {
   id: string;
@@ -17,6 +13,7 @@ interface Product {
 interface ExpiryLog {
   id: string;
   product_id: string;
+  product_name: string;
   created_at: string;
   details: {
     expired_quantity?: number;
@@ -42,7 +39,7 @@ function createEmptyRow(): ExpiryItemRow {
   };
 }
 
-export default function ExpiryManagement({ userId }: ExpiryManagementProps) {
+export default function ExpiryManagement() {
   const [products, setProducts] = useState<Product[]>([]);
   const [expiryLogs, setExpiryLogs] = useState<ExpiryLog[]>([]);
   const [expiryItems, setExpiryItems] = useState<ExpiryItemRow[]>([createEmptyRow()]);
@@ -65,28 +62,14 @@ export default function ExpiryManagement({ userId }: ExpiryManagementProps) {
     setLoading(true);
     setError('');
     try {
-      const productsResponse = await apiFetch('/api/marudham/products');
+      const [productsResponse, logsResponse] = await Promise.all([
+        apiFetch('/api/marudham/products'),
+        apiFetch('/api/marudham/products/expiry/logs'),
+      ]);
       setProducts((productsResponse.products || []) as Product[]);
-
-      let supabase;
-      try {
-        supabase = getSupabaseClient();
-      } catch {
-        setExpiryLogs([]);
-        setLoading(false);
-        return;
-      }
-
-      const logsResult = await supabase
-        .from('product_logs')
-        .select('id, product_id, created_at, details')
-        .eq('action', 'expiry')
-        .order('created_at', { ascending: false })
-        .limit(30);
-
-      setExpiryLogs(logsResult.error ? [] : ((logsResult.data || []) as ExpiryLog[]));
+      setExpiryLogs((logsResponse.logs || []) as ExpiryLog[]);
     } catch (err: any) {
-      setError(err.message || 'Failed to load products.');
+      setError(err.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
@@ -157,61 +140,29 @@ export default function ExpiryManagement({ userId }: ExpiryManagementProps) {
 
     setSubmitting(true);
 
-    let supabase;
     try {
-      supabase = getSupabaseClient();
-    } catch (clientError: any) {
-      setError(clientError.message || 'Supabase configuration is missing.');
-      setSubmitting(false);
-      return;
-    }
-
-    for (const row of normalizedRows) {
-      const previousStock = Number(row.product.stock || 0);
-      const newStock = previousStock - row.qty;
-
-      const updateResult = await supabase
-        .from('products')
-        .update({ stock: newStock, updated_at: new Date().toISOString() })
-        .eq('id', row.productId);
-
-      if (updateResult.error) {
-        setError(`Failed to update stock for ${row.product.name}: ${updateResult.error.message}`);
-        setSubmitting(false);
-        await loadData();
-        return;
-      }
-
-      const logResult = await supabase.from('product_logs').insert({
-        id: crypto.randomUUID(),
-        product_id: row.productId,
-        user_id: userId,
-        action: 'expiry',
-        details: {
-          expired_quantity: row.qty,
-          previous_stock: previousStock,
-          new_stock: newStock,
+      await apiFetch('/api/marudham/products/expiry', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: normalizedRows.map(r => ({ product_id: r.productId, qty: r.qty })),
           reason: reason.trim() || null,
           batch_number: batchNumber.trim() || null,
           notes: notes.trim() || null,
-        },
+        }),
       });
 
-      if (logResult.error) {
-        setError(`Stock updated for ${row.product.name}, but log failed: ${logResult.error.message}`);
-        setSubmitting(false);
-        await loadData();
-        return;
-      }
+      setSuccess(`Expiry recorded for ${normalizedRows.length} product(s). Form cleared.`);
+      setExpiryItems([createEmptyRow()]);
+      setReason('');
+      setBatchNumber('');
+      setNotes('');
+      clearCache('/api/marudham/products');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to record expiry.');
+    } finally {
+      setSubmitting(false);
     }
-
-    setSuccess(`Expiry recorded for ${normalizedRows.length} product(s). Form cleared.`);
-    setExpiryItems([createEmptyRow()]);
-    setReason('');
-    setBatchNumber('');
-    setNotes('');
-    await loadData();
-    setSubmitting(false);
   };
 
   return (
@@ -463,7 +414,7 @@ export default function ExpiryManagement({ userId }: ExpiryManagementProps) {
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="py-3.5 px-5 text-sm font-medium text-gray-900">
-                      {productMap[log.product_id]?.name || 'Unknown product'}
+                      {log.product_name || 'Unknown product'}
                     </td>
                     <td className="py-3.5 px-5 text-sm">
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">

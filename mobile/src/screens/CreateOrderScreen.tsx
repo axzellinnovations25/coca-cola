@@ -739,8 +739,6 @@ export default function CreateOrderScreen() {
         <Text style={styles.title}>Create Order</Text>
         <Text style={styles.subtitle}>Build a new order for your assigned shops.</Text>
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Select Shop</Text>
           <TouchableOpacity style={styles.input} onPress={() => setShowShopPicker(true)}>
@@ -1170,6 +1168,22 @@ export default function CreateOrderScreen() {
               />
               <TouchableOpacity style={styles.actionSecondary} onPress={() => setShowShopPicker(false)}>
                 <Text style={styles.actionText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Error popup */}
+        <Modal visible={!!error} transparent animationType="fade" onRequestClose={() => setError('')}>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.errorModalCard}>
+              <View style={styles.errorIconWrap}>
+                <Text style={styles.errorIconText}>✕</Text>
+              </View>
+              <Text style={styles.errorModalTitle}>Something went wrong</Text>
+              <Text style={styles.errorModalMessage}>{error}</Text>
+              <TouchableOpacity style={styles.errorModalButton} onPress={() => setError('')}>
+                <Text style={styles.errorModalButtonText}>OK</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1755,5 +1769,53 @@ const makeStyles = (colors: ThemeColors) =>
     borderWidth: 1,
     borderColor: colors.accent,
     borderRadius: 10,
+  },
+  errorModalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 10,
+  },
+  errorIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  errorIconText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  errorModalTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  errorModalMessage: {
+    color: colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  errorModalButton: {
+    marginTop: 6,
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    paddingVertical: 11,
+    paddingHorizontal: 40,
+    alignItems: 'center',
+  },
+  errorModalButtonText: {
+    color: colors.background,
+    fontWeight: '800',
+    fontSize: 15,
   },
 });

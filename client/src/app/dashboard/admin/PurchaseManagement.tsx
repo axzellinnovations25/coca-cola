@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { getSupabaseClient } from '../../../utils/supabase';
-import { apiFetch } from '../../../utils/api';
+import { apiFetch, clearCache } from '../../../utils/api';
 
 interface PurchaseManagementProps {
-  userId: string;
+  userId?: string;
 }
 
 interface Product {
@@ -16,6 +15,7 @@ interface Product {
 interface PurchaseLog {
   id: string;
   product_id: string;
+  product_name: string;
   created_at: string;
   details: {
     purchase_quantity?: number;
@@ -66,33 +66,14 @@ export default function PurchaseManagement({ userId }: PurchaseManagementProps) 
     setError('');
 
     try {
-      const productsResponse = await apiFetch('/api/marudham/products');
-      const backendProducts = (productsResponse.products || []) as Product[];
-      setProducts(backendProducts);
-
-      let supabase;
-      try {
-        supabase = getSupabaseClient();
-      } catch {
-        setPurchaseLogs([]);
-        setLoading(false);
-        return;
-      }
-
-      const logsResult = await supabase
-        .from('product_logs')
-        .select('id, product_id, created_at, details')
-        .eq('action', 'purchase')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (logsResult.error) {
-        setPurchaseLogs([]);
-      } else {
-        setPurchaseLogs((logsResult.data || []) as PurchaseLog[]);
-      }
+      const [productsResponse, logsResponse] = await Promise.all([
+        apiFetch('/api/marudham/products'),
+        apiFetch('/api/marudham/products/purchase/logs'),
+      ]);
+      setProducts((productsResponse.products || []) as Product[]);
+      setPurchaseLogs((logsResponse.logs || []) as PurchaseLog[]);
     } catch (loadError: any) {
-      setError(loadError.message || 'Failed to load products.');
+      setError(loadError.message || 'Failed to load data.');
     } finally {
       setLoading(false);
     }
@@ -180,69 +161,29 @@ export default function PurchaseManagement({ userId }: PurchaseManagementProps) 
 
     setSubmitting(true);
 
-    let supabase;
     try {
-      supabase = getSupabaseClient();
-    } catch (clientError: any) {
-      setError(clientError.message || 'Supabase configuration is missing.');
-      setSubmitting(false);
-      return;
-    }
-
-    for (const row of normalizedRows) {
-      const previousStock = Number(row.product.stock || 0);
-      const newStock = previousStock + row.qty;
-
-      const updateResult = await supabase
-        .from('products')
-        .update({
-          stock: newStock,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', row.productId);
-
-      if (updateResult.error) {
-        setError(`Failed to update stock for ${row.product.name}: ${updateResult.error.message}`);
-        setSubmitting(false);
-        await loadData();
-        return;
-      }
-
-      const totalCost = parsedUnitCost !== null ? parsedUnitCost * row.qty : null;
-
-      const details = {
-        purchase_quantity: row.qty,
-        previous_stock: previousStock,
-        new_stock: newStock,
-        unit_cost: parsedUnitCost,
-        total_cost: totalCost,
-        supplier: supplier.trim() || null,
-        notes: notes.trim() || null,
-      };
-
-      const logResult = await supabase.from('product_logs').insert({
-        id: crypto.randomUUID(),
-        product_id: row.productId,
-        user_id: userId,
-        action: 'purchase',
-        details,
+      await apiFetch('/api/marudham/products/purchase', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: normalizedRows.map(r => ({ product_id: r.productId, qty: r.qty })),
+          unit_cost: parsedUnitCost,
+          supplier: supplier.trim() || null,
+          notes: notes.trim() || null,
+        }),
       });
 
-      if (logResult.error) {
-        setError(`Stock updated for ${row.product.name}, but log failed: ${logResult.error.message}`);
-        setSubmitting(false);
-        await loadData();
-        return;
-      }
+      setSuccess(`Bulk purchase recorded for ${normalizedRows.length} product(s). Form cleared.`);
+      setPurchaseItems([createEmptyRow()]);
+      setUnitCost('');
+      setSupplier('');
+      setNotes('');
+      clearCache('/api/marudham/products');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to record purchase.');
+    } finally {
+      setSubmitting(false);
     }
-
-    setSuccess(`Bulk purchase recorded for ${normalizedRows.length} product(s). Form cleared.`);
-    setPurchaseItems([createEmptyRow()]);
-    setUnitCost('');
-    setSupplier('');
-    setNotes('');
-    await loadData();
-    setSubmitting(false);
   };
 
   return (
@@ -448,7 +389,7 @@ export default function PurchaseManagement({ userId }: PurchaseManagementProps) 
                       {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="py-3.5 px-5 text-sm font-medium text-gray-900">
-                      {productMap[log.product_id]?.name || 'Unknown product'}
+                      {log.product_name || 'Unknown product'}
                     </td>
                     <td className="py-3.5 px-5 text-sm text-gray-700">
                       {log.details?.purchase_quantity ?? '-'}

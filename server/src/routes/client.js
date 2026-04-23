@@ -61,6 +61,14 @@ router.get('/payments/logs', authenticateJWT, requireAdminOrSuperadmin, productC
 router.get('/sales-quantity/logs', authenticateJWT, requireAdminOrSuperadmin, productController.listSalesQuantityLogs);
 router.get('/inventory/stats', authenticateJWT, requireAdminOrSuperadmin, productController.getInventoryStats);
 
+// Purchase management (Admin/Superadmin only)
+router.post('/products/purchase', authenticateJWT, requireAdminOrSuperadmin, productController.recordPurchase);
+router.get('/products/purchase/logs', authenticateJWT, requireAdminOrSuperadmin, productController.listPurchaseLogs);
+
+// Expiry management (Admin/Superadmin only)
+router.post('/products/expiry', authenticateJWT, requireAdminOrSuperadmin, productController.recordExpiry);
+router.get('/products/expiry/logs', authenticateJWT, requireAdminOrSuperadmin, productController.listExpiryLogs);
+
 // Sales rep order endpoints
 router.get('/shops/assigned', authenticateJWT, requireSalesRep, productController.listAssignedShops);
 router.get('/order-products', authenticateJWT, requireSalesRep, productController.listOrderProducts);

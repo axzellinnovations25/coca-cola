@@ -406,7 +406,7 @@ export default function AdminDashboard({ user, handleLogout }: AdminDashboardPro
         ) : currentSection === 'Purchase' ? (
           <PurchaseManagement userId={user.id} />
         ) : currentSection === 'Expiry Management' ? (
-          <ExpiryManagement userId={user.id} />
+          <ExpiryManagement />
         ) : currentSection === 'Shop Management' ? (
           <ShopManagement />
         ) : currentSection === 'Order Management' ? (

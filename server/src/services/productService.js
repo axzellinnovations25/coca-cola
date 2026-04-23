@@ -357,12 +357,12 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
     throw new Error('Invalid order items');
   }
 
-  const productIds = normalizedItems.map(item => item.product_id);
+  const uniqueProductIds = [...new Set(normalizedItems.map(item => item.product_id))];
   const productsRes = await pool.query(
     'SELECT id FROM products WHERE id = ANY($1)',
-    [productIds]
+    [uniqueProductIds]
   );
-  if (productsRes.rows.length !== productIds.length) {
+  if (productsRes.rows.length !== uniqueProductIds.length) {
     throw new Error('One or more products are invalid');
   }
 
@@ -371,11 +371,11 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0) ELSE 0 END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2 
-       WHERE o2.shop_id = s.id 
+      (SELECT COUNT(*) FROM orders o2
+       WHERE o2.shop_id = s.id
        AND o2.status = 'approved'
        AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
-    FROM shops s 
+    FROM shops s
     LEFT JOIN orders o ON o.shop_id = s.id
     WHERE s.id = $1
     GROUP BY s.id, s.max_bill_amount, s.max_active_bills
@@ -501,12 +501,12 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
     throw new Error('Invalid order items');
   }
 
-  const productIds = normalizedItems.map(item => item.product_id);
+  const uniqueProductIds = [...new Set(normalizedItems.map(item => item.product_id))];
   const productsRes = await pool.query(
     'SELECT id FROM products WHERE id = ANY($1)',
-    [productIds]
+    [uniqueProductIds]
   );
-  if (productsRes.rows.length !== productIds.length) {
+  if (productsRes.rows.length !== uniqueProductIds.length) {
     throw new Error('One or more products are invalid');
   }
 
@@ -1843,6 +1843,144 @@ async function getShopDetails(shop_id) {
   };
 }
 
+async function recordPurchase({ items, unit_cost, supplier, notes, user_id }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const item of items) {
+      const { product_id, qty } = item;
+
+      const productRes = await client.query(
+        'SELECT id, name, stock FROM products WHERE id = $1 FOR UPDATE',
+        [product_id]
+      );
+      if (productRes.rows.length === 0) throw new Error(`Product ${product_id} not found`);
+
+      const product = productRes.rows[0];
+      const previousStock = Number(product.stock);
+      const newStock = previousStock + qty;
+
+      await client.query(
+        'UPDATE products SET stock = $1, updated_at = NOW() WHERE id = $2',
+        [newStock, product_id]
+      );
+
+      const totalCost = unit_cost != null ? unit_cost * qty : null;
+
+      const logId = randomUUID();
+      await client.query(
+        'INSERT INTO product_logs (id, product_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+        [
+          logId,
+          product_id,
+          user_id,
+          'purchase',
+          JSON.stringify({
+            purchase_quantity: qty,
+            previous_stock: previousStock,
+            new_stock: newStock,
+            unit_cost: unit_cost ?? null,
+            total_cost: totalCost,
+            supplier: supplier || null,
+            notes: notes || null,
+          }),
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listPurchaseLogs() {
+  const result = await pool.query(`
+    SELECT l.id, l.product_id, l.created_at, l.details, p.name as product_name
+    FROM product_logs l
+    LEFT JOIN products p ON l.product_id = p.id
+    WHERE l.action = 'purchase'
+    ORDER BY l.created_at DESC
+    LIMIT 30
+  `);
+  return result.rows;
+}
+
+async function recordExpiry({ items, reason, batch_number, notes, user_id }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    for (const item of items) {
+      const { product_id, qty } = item;
+
+      const productRes = await client.query(
+        'SELECT id, name, stock, reserved_stock FROM products WHERE id = $1 FOR UPDATE',
+        [product_id]
+      );
+      if (productRes.rows.length === 0) throw new Error(`Product ${product_id} not found`);
+
+      const product = productRes.rows[0];
+      const available = Number(product.stock) - Number(product.reserved_stock);
+
+      if (qty > available) {
+        throw new Error(
+          `"${product.name}": cannot expire ${qty} units — only ${available} available (${product.reserved_stock} reserved).`
+        );
+      }
+
+      const newStock = Number(product.stock) - qty;
+
+      await client.query(
+        'UPDATE products SET stock = $1, updated_at = NOW() WHERE id = $2',
+        [newStock, product_id]
+      );
+
+      const logId = randomUUID();
+      await client.query(
+        'INSERT INTO product_logs (id, product_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+        [
+          logId,
+          product_id,
+          user_id,
+          'expiry',
+          JSON.stringify({
+            expired_quantity: qty,
+            previous_stock: Number(product.stock),
+            new_stock: newStock,
+            reason: reason || null,
+            batch_number: batch_number || null,
+            notes: notes || null,
+          }),
+        ]
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function listExpiryLogs() {
+  const result = await pool.query(`
+    SELECT l.id, l.product_id, l.created_at, l.details, p.name as product_name
+    FROM product_logs l
+    LEFT JOIN products p ON l.product_id = p.id
+    WHERE l.action = 'expiry'
+    ORDER BY l.created_at DESC
+    LIMIT 30
+  `);
+  return result.rows;
+}
+
 module.exports = {
   listProducts,
   addProduct,
@@ -1884,5 +2022,9 @@ module.exports.updateProductInventory = updateProductInventory;
 module.exports.listSalesQuantityLogs = listSalesQuantityLogs;
 module.exports.getInventoryStats = getInventoryStats; 
 module.exports.getRepresentativeCollections = getRepresentativeCollections;
-module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats; 
-module.exports.getShopDetails = getShopDetails; 
+module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats;
+module.exports.getShopDetails = getShopDetails;
+module.exports.recordExpiry = recordExpiry;
+module.exports.listExpiryLogs = listExpiryLogs;
+module.exports.recordPurchase = recordPurchase;
+module.exports.listPurchaseLogs = listPurchaseLogs;

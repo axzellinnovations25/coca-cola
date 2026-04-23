@@ -801,4 +801,66 @@ exports.getRepresentativeCollectionStats = async (req, res) => {
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
-}; 
+};
+
+exports.recordPurchase = async (req, res) => {
+  try {
+    const { items, unit_cost, supplier, notes } = req.body;
+    const user_id = req.user && req.user.id;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items array is required' });
+    }
+
+    for (const item of items) {
+      if (!item.product_id || !Number.isInteger(item.qty) || item.qty <= 0) {
+        return res.status(400).json({ error: 'Each item must have product_id and a positive integer qty' });
+      }
+    }
+
+    await productService.recordPurchase({ items, unit_cost, supplier, notes, user_id });
+    res.json({ message: 'Purchase recorded successfully' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.listPurchaseLogs = async (req, res) => {
+  try {
+    const logs = await productService.listPurchaseLogs();
+    res.json({ logs });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.recordExpiry = async (req, res) => {
+  try {
+    const { items, reason, batch_number, notes } = req.body;
+    const user_id = req.user && req.user.id;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items array is required' });
+    }
+
+    for (const item of items) {
+      if (!item.product_id || !Number.isInteger(item.qty) || item.qty <= 0) {
+        return res.status(400).json({ error: 'Each item must have product_id and a positive integer qty' });
+      }
+    }
+
+    await productService.recordExpiry({ items, reason, batch_number, notes, user_id });
+    res.json({ message: 'Expiry recorded successfully' });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.listExpiryLogs = async (req, res) => {
+  try {
+    const logs = await productService.listExpiryLogs();
+    res.json({ logs });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
