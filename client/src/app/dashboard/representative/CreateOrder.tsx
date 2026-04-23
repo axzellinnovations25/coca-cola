@@ -16,6 +16,9 @@ interface Product {
   id: string;
   name: string;
   unit_price: number;
+  stock: number;
+  reserved_stock: number;
+  available_stock: number;
 }
 
 interface OrderItem {
@@ -699,13 +702,25 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
   let validationError = '';
   if (selectedShop) {
     const availableCredit = selectedShop.max_bill_amount - selectedShop.current_outstanding;
-    const availableBillSlots = selectedShop.max_active_bills - selectedShop.active_bills;
     if (orderTotal > availableCredit) {
       validationError = `Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`;
     } else if (selectedShop.active_bills >= selectedShop.max_active_bills) {
       validationError = `Shop has reached the maximum number of active bills (${selectedShop.max_active_bills}).`;
     }
   }
+
+  // Stock validation per item
+  const stockErrors = orderItems
+    .map(item => {
+      const product = products.find(p => p.id === item.product_id);
+      if (!product) return null;
+      const totalOrdered = item.quantity + item.free_quantity;
+      if (totalOrdered > product.available_stock) {
+        return `"${product.name}": ordered ${totalOrdered}, only ${product.available_stock} available`;
+      }
+      return null;
+    })
+    .filter(Boolean) as string[];
 
   return (
     <div>
@@ -821,8 +836,16 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                 >
                   <option value="" className="text-gray-500">Select a product...</option>
                   {products.map(product => (
-                    <option key={product.id} value={product.id} className="text-gray-900">
-                      {product.name} - {Number(product.unit_price).toFixed(2)} LKR
+                    <option
+                      key={product.id}
+                      value={product.id}
+                      disabled={product.available_stock <= 0}
+                      className="text-gray-900"
+                    >
+                      {product.name} — {Number(product.unit_price).toFixed(2)} LKR
+                      {product.available_stock <= 0
+                        ? ' (Out of stock)'
+                        : ` (${product.available_stock} available)`}
                     </option>
                   ))}
                 </select>
@@ -977,10 +1000,25 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
               </div>
             )}
 
+            {/* Stock Errors */}
+            {stockErrors.length > 0 && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-lg space-y-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-red-700 font-medium text-sm">Insufficient stock:</span>
+                </div>
+                {stockErrors.map((err, i) => (
+                  <p key={i} className="text-red-600 text-sm pl-7">{err}</p>
+                ))}
+              </div>
+            )}
+
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={!selectedShop || orderItems.length === 0 || !!validationError || submitting}
+              disabled={!selectedShop || orderItems.length === 0 || !!validationError || stockErrors.length > 0 || submitting}
               className="w-full px-6 py-3 bg-purple-100 hover:bg-purple-200 disabled:bg-gray-100 disabled:cursor-not-allowed text-purple-700 font-medium rounded-lg transition-colors"
             >
               {submitting ? 'Creating Order...' : 'Review & Create Order'}

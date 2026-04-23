@@ -7,6 +7,7 @@ interface Product {
   description: string;
   unit_price: number;
   stock: number;
+  reserved_stock: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -329,8 +330,10 @@ export default function ProductManagement() {
                     Price {sortBy === 'unit_price' && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                   </th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left cursor-pointer hover:text-gray-700 transition-colors" onClick={() => handleSort('stock')}>
-                    Stock {sortBy === 'stock' && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+                    Total Stock {sortBy === 'stock' && <span className="ml-1">{sortDir === 'asc' ? '▲' : '▼'}</span>}
                   </th>
+                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Reserved</th>
+                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Available</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Actions</th>
                 </tr>
               </thead>
@@ -356,6 +359,27 @@ export default function ProductManagement() {
                       }`}>
                         {product.stock} units
                       </span>
+                    </td>
+                    <td className="py-3.5 px-5">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        product.reserved_stock > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {product.reserved_stock ?? 0} units
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-5">
+                      {(() => {
+                        const available = product.stock - (product.reserved_stock ?? 0);
+                        return (
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                            available <= 0 ? 'bg-red-100 text-red-700' :
+                            available < 10 ? 'bg-amber-100 text-amber-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {available} units
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="py-3.5 px-5">
                       <div className="flex items-center gap-2">

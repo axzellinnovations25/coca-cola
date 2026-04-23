@@ -12,6 +12,7 @@ import OrderLogTable from './admin/OrderLogTable';
 import PaymentLogTable from './admin/PaymentLogTable';
 import SalesQuantityLogTable from './admin/SalesQuantityLogTable';
 import PurchaseManagement from './admin/PurchaseManagement';
+import ExpiryManagement from './admin/ExpiryManagement';
 
 interface SidebarChild {
   label: string;
@@ -47,6 +48,14 @@ const sidebarItems: SidebarItem[] = [
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    )
+  },
+  {
+    label: 'Expiry Management',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
       </svg>
     )
   },
@@ -396,6 +405,8 @@ export default function AdminDashboard({ user, handleLogout }: AdminDashboardPro
           <ProductManagement />
         ) : currentSection === 'Purchase' ? (
           <PurchaseManagement userId={user.id} />
+        ) : currentSection === 'Expiry Management' ? (
+          <ExpiryManagement userId={user.id} />
         ) : currentSection === 'Shop Management' ? (
           <ShopManagement />
         ) : currentSection === 'Order Management' ? (

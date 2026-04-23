@@ -219,23 +219,27 @@ async function listAssignedShops(sales_rep_id) {
 }
 
 async function listOrderProducts() {
-  const result = await pool.query('SELECT * FROM products ORDER BY name ASC');
+  const result = await pool.query(`
+    SELECT *, (stock - reserved_stock) AS available_stock
+    FROM products
+    ORDER BY name ASC
+  `);
   return result.rows;
 }
 
 async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   const orderId = randomUUID();
-  // Calculate total
   const total = items.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-  // Fetch shop info for validation - now considering payments
+
+  // Credit validation (read-only, outside transaction)
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0) ELSE 0 END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2 
-       WHERE o2.shop_id = s.id 
+      (SELECT COUNT(*) FROM orders o2
+       WHERE o2.shop_id = s.id
        AND o2.status = 'approved'
        AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
-    FROM shops s 
+    FROM shops s
     LEFT JOIN orders o ON o.shop_id = s.id
     WHERE s.id = $1
     GROUP BY s.id, s.max_bill_amount, s.max_active_bills
@@ -249,41 +253,79 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   if (Number(shop.active_bills) >= Number(shop.max_active_bills)) {
     throw new Error(`Shop has reached the maximum number of active bills (${shop.max_active_bills}).`);
   }
-  // Proceed with order creation with pending status
-  const orderRes = await pool.query(
-    `INSERT INTO orders (id, shop_id, sales_rep_id, notes, total, status, created_at)
-     VALUES ($1, $2, $3, $4, $5, 'pending', now()) RETURNING *`,
-    [orderId, shop_id, sales_rep_id, notes, total]
-  );
-  const order = orderRes.rows[0];
+
+  // Aggregate total quantity needed per product (handles free-item duplicates)
+  const productQuantities = new Map();
   for (const item of items) {
-    await pool.query(
-      `INSERT INTO order_items (order_id, product_id, unit_price, quantity, total)
-       VALUES ($1, $2, $3, $4, $5)` ,
-      [order.id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
-    );
+    const existing = productQuantities.get(item.product_id) || 0;
+    productQuantities.set(item.product_id, existing + Number(item.quantity));
   }
-  
-  // Log the order creation
-  await logOrderAction({
-    order_id: order.id,
-    sales_rep_id,
-    action: 'create',
-    details: {
-      shop_id,
-      total,
-      notes,
-      status: 'pending',
-      items: items.map(item => ({
-        product_id: item.product_id,
-        unit_price: item.unit_price,
-        quantity: item.quantity,
-        total: item.unit_price * item.quantity
-      }))
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Reserve stock for each product (locked per-row)
+    for (const [productId, totalQty] of productQuantities) {
+      const stockRes = await client.query(
+        'SELECT stock, reserved_stock, name FROM products WHERE id = $1 FOR UPDATE',
+        [productId]
+      );
+      if (stockRes.rows.length === 0) throw new Error('Product not found');
+      const { stock, reserved_stock, name } = stockRes.rows[0];
+      const available = Number(stock) - Number(reserved_stock);
+      if (totalQty > available) {
+        throw new Error(`Insufficient stock for "${name}". Available: ${available}, Requested: ${totalQty}`);
+      }
+      await client.query(
+        'UPDATE products SET reserved_stock = reserved_stock + $1 WHERE id = $2',
+        [totalQty, productId]
+      );
     }
-  });
-  
-  return order;
+
+    // Create order and items
+    const orderRes = await client.query(
+      `INSERT INTO orders (id, shop_id, sales_rep_id, notes, total, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'pending', now()) RETURNING *`,
+      [orderId, shop_id, sales_rep_id, notes, total]
+    );
+    const order = orderRes.rows[0];
+
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO order_items (order_id, product_id, unit_price, quantity, total)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [order.id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    await logOrderAction({
+      order_id: order.id,
+      sales_rep_id,
+      action: 'create',
+      details: {
+        shop_id,
+        total,
+        notes,
+        status: 'pending',
+        items: items.map(item => ({
+          product_id: item.product_id,
+          unit_price: item.unit_price,
+          quantity: item.quantity,
+          total: item.unit_price * item.quantity
+        }))
+      }
+    });
+
+    return order;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, items }) {
@@ -356,6 +398,41 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
       'SELECT product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1',
       [order_id]
     );
+
+    // Compute reservation diff: group quantities by product_id for before and after
+    const beforeMap = new Map();
+    for (const item of beforeItemsRes.rows) {
+      const existing = beforeMap.get(item.product_id) || 0;
+      beforeMap.set(item.product_id, existing + Number(item.quantity));
+    }
+    const afterMap = new Map();
+    for (const item of normalizedItems) {
+      const existing = afterMap.get(item.product_id) || 0;
+      afterMap.set(item.product_id, existing + Number(item.quantity));
+    }
+    const allProductIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+    for (const productId of allProductIds) {
+      const beforeQty = beforeMap.get(productId) || 0;
+      const afterQty = afterMap.get(productId) || 0;
+      const diff = afterQty - beforeQty;
+      if (diff === 0) continue;
+      if (diff > 0) {
+        const stockRes = await client.query(
+          'SELECT stock, reserved_stock, name FROM products WHERE id = $1 FOR UPDATE',
+          [productId]
+        );
+        if (stockRes.rows.length === 0) throw new Error('Product not found');
+        const { stock, reserved_stock, name } = stockRes.rows[0];
+        const available = Number(stock) - Number(reserved_stock);
+        if (diff > available) {
+          throw new Error(`Insufficient stock for "${name}". Available: ${available}, Additional needed: ${diff}`);
+        }
+      }
+      await client.query(
+        'UPDATE products SET reserved_stock = reserved_stock + $1 WHERE id = $2',
+        [diff, productId]
+      );
+    }
 
     await client.query(
       'UPDATE orders SET notes = $1, total = $2 WHERE id = $3',
@@ -445,13 +522,16 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
     );
 
     if (order.status === 'approved') {
+      // Stock already deducted at approval — adjust the diff
       const beforeMap = new Map();
       for (const item of beforeItemsRes.rows) {
-        beforeMap.set(item.product_id, Number(item.quantity));
+        const existing = beforeMap.get(item.product_id) || 0;
+        beforeMap.set(item.product_id, existing + Number(item.quantity));
       }
       const afterMap = new Map();
       for (const item of normalizedItems) {
-        afterMap.set(item.product_id, Number(item.quantity));
+        const existing = afterMap.get(item.product_id) || 0;
+        afterMap.set(item.product_id, existing + Number(item.quantity));
       }
 
       const productSet = new Set([...beforeMap.keys(), ...afterMap.keys()]);
@@ -465,17 +545,48 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
           'SELECT stock FROM products WHERE id = $1 FOR UPDATE',
           [productId]
         );
-        if (stockRes.rows.length === 0) {
-          throw new Error('Product not found');
-        }
+        if (stockRes.rows.length === 0) throw new Error('Product not found');
         const currentStock = Number(stockRes.rows[0].stock);
         const newStock = currentStock - diff;
-        if (newStock < 0) {
-          throw new Error('Insufficient inventory for approved order update');
+        if (newStock < 0) throw new Error('Insufficient inventory for approved order update');
+        await client.query('UPDATE products SET stock = $1 WHERE id = $2', [newStock, productId]);
+      }
+    } else if (order.status === 'pending') {
+      // Adjust reservations for the diff (pending orders have reserved_stock)
+      const beforeMap = new Map();
+      for (const item of beforeItemsRes.rows) {
+        const existing = beforeMap.get(item.product_id) || 0;
+        beforeMap.set(item.product_id, existing + Number(item.quantity));
+      }
+      const afterMap = new Map();
+      for (const item of normalizedItems) {
+        const existing = afterMap.get(item.product_id) || 0;
+        afterMap.set(item.product_id, existing + Number(item.quantity));
+      }
+
+      const productSet = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+      for (const productId of productSet) {
+        const beforeQty = beforeMap.get(productId) || 0;
+        const afterQty = afterMap.get(productId) || 0;
+        const diff = afterQty - beforeQty;
+        if (diff === 0) continue;
+        if (diff > 0) {
+          const stockRes = await client.query(
+            'SELECT stock, reserved_stock, name FROM products WHERE id = $1 FOR UPDATE',
+            [productId]
+          );
+          if (stockRes.rows.length === 0) throw new Error('Product not found');
+          const { stock, reserved_stock, name } = stockRes.rows[0];
+          const available = Number(stock) - Number(reserved_stock);
+          if (diff > available) {
+            throw new Error(`Insufficient stock for "${name}". Available: ${available}, Additional needed: ${diff}`);
+          }
+        } else {
+          await client.query('SELECT 1 FROM products WHERE id = $1 FOR UPDATE', [productId]);
         }
         await client.query(
-          'UPDATE products SET stock = $1 WHERE id = $2',
-          [newStock, productId]
+          'UPDATE products SET reserved_stock = reserved_stock + $1 WHERE id = $2',
+          [diff, productId]
         );
       }
     }
@@ -580,22 +691,35 @@ async function approveOrder(order_id, admin_id) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     // Update order status to approved
     await client.query('UPDATE orders SET status = $1 WHERE id = $2', ['approved', order_id]);
-    
+
+    // Deduct stock and release reservation (grouped by product_id to handle free-item rows)
+    const productQtyMap = new Map();
+    for (const item of orderItems) {
+      const existing = productQtyMap.get(item.product_id) || 0;
+      productQtyMap.set(item.product_id, existing + Number(item.quantity));
+    }
+    for (const [productId, totalQty] of productQtyMap) {
+      await client.query(
+        'UPDATE products SET stock = stock - $1, reserved_stock = reserved_stock - $1 WHERE id = $2',
+        [totalQty, productId]
+      );
+    }
+
     await client.query('COMMIT');
-    
+
     // Log the approval action
     await logOrderAction({
       order_id: order_id,
-      sales_rep_id: admin_id, // admin_id will be the one approving
+      sales_rep_id: admin_id,
       action: 'approve',
       details: {
         previous_status: 'pending',
         new_status: 'approved',
         approved_by: admin_id,
-        inventory_updated: false,
+        inventory_updated: true,
         items_processed: orderItems.length
       }
     });
@@ -696,13 +820,26 @@ async function rejectOrder(order_id, admin_id, rejection_reason) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     // Update order status to rejected and add rejection reason
     await client.query(
-      'UPDATE orders SET status = $1, rejection_reason = $2, rejected_at = now() WHERE id = $3', 
+      'UPDATE orders SET status = $1, rejection_reason = $2, rejected_at = now() WHERE id = $3',
       ['rejected', rejection_reason, order_id]
     );
-    
+
+    // Release reserved stock (grouped by product_id to handle free-item rows)
+    const productQtyMap = new Map();
+    for (const item of orderItems) {
+      const existing = productQtyMap.get(item.product_id) || 0;
+      productQtyMap.set(item.product_id, existing + Number(item.quantity));
+    }
+    for (const [productId, totalQty] of productQtyMap) {
+      await client.query(
+        'UPDATE products SET reserved_stock = reserved_stock - $1 WHERE id = $2',
+        [totalQty, productId]
+      );
+    }
+
     await client.query('COMMIT');
     
     // Log the rejection action
@@ -998,6 +1135,14 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
           [order_id, item.product_id]
         );
       }
+    }
+
+    // Restore stock for returned items
+    for (const item of normalizedItems) {
+      await client.query(
+        'UPDATE products SET stock = stock + $1 WHERE id = $2',
+        [item.quantity, item.product_id]
+      );
     }
 
     const updatedItemsRes = await client.query(
