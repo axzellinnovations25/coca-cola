@@ -864,3 +864,19 @@ exports.listExpiryLogs = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+
+exports.getAdminCollections = async (req, res) => {
+  try {
+    const { start_date, end_date, sales_rep_id, shop_id } = req.query;
+    const collections = await productService.getAdminCollections({
+      start_date: start_date || null,
+      end_date: end_date || null,
+      sales_rep_id: sales_rep_id || null,
+      shop_id: shop_id || null,
+    });
+    res.json({ collections });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};

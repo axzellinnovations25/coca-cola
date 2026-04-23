@@ -19,6 +19,12 @@ interface SalesRep {
   collected_amount?: number;
   collection_rate?: number;
   performance_rating?: string;
+  pending_order_count?: number;
+  pending_order_value?: number;
+  rejected_order_count?: number;
+  return_count?: number;
+  last_order_date?: string | null;
+  last_collection_date?: string | null;
 }
 
 export default function SalesRepresentatives() {
@@ -103,17 +109,23 @@ export default function SalesRepresentatives() {
 
   const exportData = () => {
     const csvData = [
-      ['Name', 'Email', 'Contact', 'Shop Assignment', 'Order Performance', 'Total Revenue', 'Outstanding', 'Collected', 'Collection Rate', 'Performance'],
+      ['Name', 'Email', 'Contact', 'Shops', 'Approved Orders', 'Pending Orders', 'Pending Value', 'Rejected Orders', 'Returns', 'Total Revenue', 'Outstanding', 'Collected', 'Collection Rate', 'Last Order', 'Last Collection', 'Performance'],
       ...filteredRepresentatives.map(rep => [
         `${rep.first_name} ${rep.last_name}`,
         rep.email,
         rep.phone_no || 'N/A',
-        `${rep.shop_count ?? 0} shops assigned`,
-        `${rep.order_count ?? 0} orders (Avg: ${(rep.avg_order_value ?? 0).toFixed(0)} LKR/order)`,
+        rep.shop_count ?? 0,
+        rep.order_count ?? 0,
+        rep.pending_order_count ?? 0,
+        `${(rep.pending_order_value ?? 0).toFixed(0)} LKR`,
+        rep.rejected_order_count ?? 0,
+        rep.return_count ?? 0,
         `${(rep.total_revenue ?? 0).toFixed(0)} LKR`,
         `${(rep.outstanding_amount ?? 0).toFixed(0)} LKR`,
         `${(rep.collected_amount ?? 0).toFixed(0)} LKR`,
         `${(rep.collection_rate ?? 0).toFixed(1)}%`,
+        rep.last_order_date ? new Date(rep.last_order_date).toLocaleDateString() : 'Never',
+        rep.last_collection_date ? new Date(rep.last_collection_date).toLocaleDateString() : 'Never',
         rep.performance_rating ?? ''
       ])
     ];
@@ -289,10 +301,13 @@ export default function SalesRepresentatives() {
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
                 <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Name</th>
-                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Email</th>
                 <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Shops</th>
                 <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Orders</th>
-                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Total Revenue</th>
+                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Pending</th>
+                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Revenue</th>
+                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Outstanding</th>
+                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Collection</th>
+                <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Last Active</th>
                 <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Performance</th>
                 <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Actions</th>
               </tr>
@@ -300,7 +315,7 @@ export default function SalesRepresentatives() {
             <tbody>
               {paginatedReps.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>
+                  <td colSpan={10}>
                     <div className="flex flex-col items-center justify-center py-16">
                       <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mx-auto mb-3">
                         <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -319,13 +334,48 @@ export default function SalesRepresentatives() {
                     className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors"
                   >
                     <td className="py-3.5 px-5 text-sm">
-                      <span className="font-medium text-gray-900">{rep.first_name} {rep.last_name}</span>
+                      <p className="font-semibold text-gray-900">{rep.first_name} {rep.last_name}</p>
+                      <p className="text-xs text-gray-400">{rep.email}</p>
                     </td>
-                    <td className="py-3.5 px-5 text-sm text-gray-700">{rep.email}</td>
                     <td className="py-3.5 px-5 text-sm text-gray-700">{rep.shop_count ?? 0}</td>
-                    <td className="py-3.5 px-5 text-sm text-gray-700">{rep.order_count ?? 0}</td>
+                    <td className="py-3.5 px-5 text-sm text-gray-700">
+                      <span>{rep.order_count ?? 0}</span>
+                      {(rep.rejected_order_count ?? 0) > 0 && (
+                        <span className="ml-1.5 text-xs text-red-500" title={`${rep.rejected_order_count} rejected`}>
+                          ({rep.rejected_order_count} rej)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-5 text-sm">
+                      {(rep.pending_order_count ?? 0) > 0 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+                          {rep.pending_order_count}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="py-3.5 px-5 text-sm font-semibold text-green-700">
                       {(rep.total_revenue ?? 0).toFixed(0)} LKR
+                    </td>
+                    <td className="py-3.5 px-5 text-sm font-semibold text-red-600">
+                      {(rep.outstanding_amount ?? 0).toFixed(0)} LKR
+                    </td>
+                    <td className="py-3.5 px-5 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-16 bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className={`h-1.5 rounded-full ${(rep.collection_rate ?? 0) >= 75 ? 'bg-green-500' : (rep.collection_rate ?? 0) >= 50 ? 'bg-blue-500' : (rep.collection_rate ?? 0) >= 25 ? 'bg-yellow-500' : 'bg-red-400'}`}
+                            style={{ width: `${Math.min(100, rep.collection_rate ?? 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-gray-600">{(rep.collection_rate ?? 0).toFixed(0)}%</span>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-5 text-sm text-gray-500">
+                      {rep.last_order_date
+                        ? new Date(rep.last_order_date).toLocaleDateString()
+                        : <span className="text-gray-300">Never</span>}
                     </td>
                     <td className="py-3.5 px-5 text-sm">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getPerformanceColor(rep.performance_rating ?? '')}`}>
@@ -337,7 +387,7 @@ export default function SalesRepresentatives() {
                         onClick={() => handleViewDetails(rep)}
                         className="px-2.5 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-medium transition-colors border border-gray-200"
                       >
-                        View Details
+                        Details
                       </button>
                     </td>
                   </tr>
@@ -467,6 +517,48 @@ export default function SalesRepresentatives() {
                 <span className="text-xs text-gray-500 uppercase tracking-wide">Performance Rating</span>
                 <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${getPerformanceColor(selectedRep.performance_rating ?? '')}`}>
                   {selectedRep.performance_rating ?? 'N/A'}
+                </span>
+              </div>
+            </div>
+
+            {/* Activity */}
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Activity</p>
+            <div className="mb-6">
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Pending Orders</span>
+                <span className="text-sm font-medium text-amber-700">
+                  {selectedRep.pending_order_count ?? 0} order{(selectedRep.pending_order_count ?? 0) !== 1 ? 's' : ''}
+                  {(selectedRep.pending_order_count ?? 0) > 0 && (
+                    <span className="ml-1 text-gray-500">({(selectedRep.pending_order_value ?? 0).toFixed(0)} LKR)</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Rejected Orders</span>
+                <span className={`text-sm font-medium ${(selectedRep.rejected_order_count ?? 0) > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                  {selectedRep.rejected_order_count ?? 0}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Returns Made</span>
+                <span className={`text-sm font-medium ${(selectedRep.return_count ?? 0) > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
+                  {selectedRep.return_count ?? 0}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Last Order</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {selectedRep.last_order_date
+                    ? new Date(selectedRep.last_order_date).toLocaleDateString()
+                    : 'Never'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-500 uppercase tracking-wide">Last Collection</span>
+                <span className="text-sm font-medium text-gray-900">
+                  {selectedRep.last_collection_date
+                    ? new Date(selectedRep.last_collection_date).toLocaleDateString()
+                    : 'Never'}
                 </span>
               </div>
             </div>

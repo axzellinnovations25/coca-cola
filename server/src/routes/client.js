@@ -115,4 +115,7 @@ router.get('/collections/representative/stats', authenticateJWT, requireSalesRep
 // Sales representatives statistics (Admin/Superadmin only)
 router.get('/sales-representatives/stats', authenticateJWT, requireAdminOrSuperadmin, productController.getSalesRepresentativesWithStats);
 
+// Admin collections (Admin/Superadmin only)
+router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);
+
 module.exports = router; 

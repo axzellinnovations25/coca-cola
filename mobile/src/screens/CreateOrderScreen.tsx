@@ -37,6 +37,7 @@ interface Product {
   id: string;
   name: string;
   unit_price: number;
+  available_stock: number;
 }
 
 interface OrderItem {
@@ -749,11 +750,33 @@ export default function CreateOrderScreen() {
           {selectedShop && (
             <View style={styles.shopSummary}>
               <Text style={styles.shopName}>{selectedShop.name}</Text>
-              <Text style={styles.shopMeta}>{selectedShop.address}</Text>
-              <Text style={styles.shopMeta}>{selectedShop.phone}</Text>
-              <Text style={styles.shopMeta}>
-                Outstanding: {Number(selectedShop.current_outstanding).toFixed(2)} LKR
-              </Text>
+              {!!selectedShop.phone && <Text style={styles.shopMeta}>{selectedShop.phone}</Text>}
+              <View style={styles.shopStatGrid}>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatLabel}>Available Credit</Text>
+                  <Text style={[styles.shopStatValue, { color: colors.accent }]}>
+                    {Math.max(0, Number(selectedShop.max_bill_amount) - Number(selectedShop.current_outstanding)).toFixed(2)} LKR
+                  </Text>
+                </View>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatLabel}>Available Bills</Text>
+                  <Text style={[styles.shopStatValue, { color: colors.accent }]}>
+                    {Math.max(0, Number(selectedShop.max_active_bills) - Number(selectedShop.active_bills))} / {selectedShop.max_active_bills}
+                  </Text>
+                </View>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatLabel}>Outstanding</Text>
+                  <Text style={[styles.shopStatValue, Number(selectedShop.current_outstanding) > 0 ? styles.shopStatDanger : styles.shopStatSafe]}>
+                    {Number(selectedShop.current_outstanding).toFixed(2)} LKR
+                  </Text>
+                </View>
+                <View style={styles.shopStatItem}>
+                  <Text style={styles.shopStatLabel}>Active Bills</Text>
+                  <Text style={[styles.shopStatValue, Number(selectedShop.active_bills) >= Number(selectedShop.max_active_bills) ? styles.shopStatDanger : styles.shopStatSafe]}>
+                    {selectedShop.active_bills}
+                  </Text>
+                </View>
+              </View>
             </View>
           )}
         </View>
@@ -1124,8 +1147,18 @@ export default function CreateOrderScreen() {
                       setShowProductPicker(false);
                     }}
                   >
-                    <Text style={styles.dropdownTitle}>{item.name}</Text>
-                    <Text style={styles.dropdownSubtitle}>{formatCurrency(item.unit_price)} LKR</Text>
+                    <View style={styles.dropdownItemLeft}>
+                      <Text style={styles.dropdownTitle}>{item.name}</Text>
+                      <Text style={styles.dropdownSubtitle}>{formatCurrency(item.unit_price)} LKR</Text>
+                    </View>
+                    <Text style={[
+                      styles.dropdownStock,
+                      item.available_stock === 0 ? styles.stockZero :
+                      item.available_stock <= 5 ? styles.stockLow :
+                      styles.stockOk,
+                    ]}>
+                      {item.available_stock}
+                    </Text>
                   </TouchableOpacity>
                 )}
               />
@@ -1269,6 +1302,13 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dropdownItemLeft: {
+    flex: 1,
+    marginRight: 8,
   },
   dropdownTitle: {
     color: colors.text,
@@ -1278,6 +1318,15 @@ const makeStyles = (colors: ThemeColors) =>
     color: colors.textMuted,
     marginTop: 4,
   },
+  dropdownStock: {
+    fontSize: 13,
+    fontWeight: '700',
+    minWidth: 32,
+    textAlign: 'right',
+  },
+  stockZero: { color: '#ef4444' },
+  stockLow: { color: '#f59e0b' },
+  stockOk: { color: '#22c55e' },
   shopSummary: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 12,
@@ -1289,10 +1338,36 @@ const makeStyles = (colors: ThemeColors) =>
   shopName: {
     color: colors.text,
     fontWeight: '700',
+    marginBottom: 2,
   },
   shopMeta: {
     color: colors.textSubtle,
+    marginBottom: 8,
   },
+  shopStatGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  shopStatItem: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    padding: 8,
+  },
+  shopStatLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  shopStatValue: {
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  shopStatDanger: { color: '#ef4444' },
+  shopStatSafe: { color: '#22c55e' },
   row: {
     flexDirection: 'row',
     gap: 12,

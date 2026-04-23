@@ -200,7 +200,6 @@ function formatOrderMessage(order, shop, items, type = 'sms') {
   const maxLength = isSMS ? 1800 : 2000; // SMS has character limit
   
   let message = `MotionRep Order Notification\n\n`;
-  message += `Order ID: ${order.id}\n`;
   message += `Shop: ${shop.name}\n`;
   message += `Address: ${shop.address}\n`;
   message += `Date: ${new Date(order.created_at).toLocaleDateString()}\n`;
@@ -285,8 +284,6 @@ function formatPaymentMessage(payment, order, shop, remainingBillsCount, type = 
   const maxLength = isSMS ? 1800 : 2000; // SMS has character limit
   
   let message = `MotionRep Payment Notification\n\n`;
-  message += `Payment ID: ${payment.id}\n`;
-  message += `Order ID: ${order.id}\n`;
   message += `Shop: ${shop.name}\n`;
   message += `Address: ${shop.address}\n`;
   message += `Date: ${new Date(payment.created_at).toLocaleDateString()}\n`;
@@ -367,7 +364,6 @@ function formatOrderApprovalMessage(order, shop, items, type = 'sms') {
   const maxLength = isSMS ? 1800 : 2000; // SMS has character limit
   
   let message = `MotionRep Order Approval Notification\n\n`;
-  message += `Order ID: ${order.id}\n`;
   message += `Shop: ${shop.name}\n`;
   message += `Address: ${shop.address}\n`;
   message += `Date: ${new Date(order.created_at).toLocaleDateString()}\n`;
@@ -453,7 +449,6 @@ function formatOrderRejectionMessage(order, shop, items, type = 'sms') {
   const maxLength = isSMS ? 1800 : 2000; // SMS has character limit
   
   let message = `MotionRep Order Rejection Notification\n\n`;
-  message += `Order ID: ${order.id}\n`;
   message += `Shop: ${shop.name}\n`;
   message += `Address: ${shop.address}\n`;
   message += `Date: ${new Date(order.created_at).toLocaleDateString()}\n`;

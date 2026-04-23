@@ -200,15 +200,18 @@ async function listShopLogs() {
 
 async function listAssignedShops(sales_rep_id) {
   const result = await pool.query(`
-    SELECT s.*, 
-      COALESCE(SUM(CASE 
+    SELECT s.*,
+      COALESCE(SUM(CASE
         WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
-        ELSE 0 
+        WHEN o.status = 'pending' THEN o.total::numeric
+        ELSE 0
       END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2 
-       WHERE o2.shop_id = s.id 
-       AND o2.status = 'approved'
-       AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
+      (SELECT COUNT(*) FROM orders o2
+       WHERE o2.shop_id = s.id
+       AND (
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         OR o2.status = 'pending'
+       )) as active_bills
     FROM shops s
     LEFT JOIN orders o ON o.shop_id = s.id
     WHERE s.sales_rep_id = $1
@@ -234,11 +237,17 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   // Credit validation (read-only, outside transaction)
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
-      COALESCE(SUM(CASE WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0) ELSE 0 END), 0) as current_outstanding,
+      COALESCE(SUM(CASE
+        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'pending' THEN o.total::numeric
+        ELSE 0
+      END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
-       AND o2.status = 'approved'
-       AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
+       AND (
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         OR o2.status = 'pending'
+       )) as active_bills
     FROM shops s
     LEFT JOIN orders o ON o.shop_id = s.id
     WHERE s.id = $1
@@ -370,16 +379,23 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
 
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
-      COALESCE(SUM(CASE WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0) ELSE 0 END), 0) as current_outstanding,
+      COALESCE(SUM(CASE
+        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'pending' AND o.id != $2 THEN o.total::numeric
+        ELSE 0
+      END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
-       AND o2.status = 'approved'
-       AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
+       AND o2.id != $2
+       AND (
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         OR o2.status = 'pending'
+       )) as active_bills
     FROM shops s
     LEFT JOIN orders o ON o.shop_id = s.id
     WHERE s.id = $1
     GROUP BY s.id, s.max_bill_amount, s.max_active_bills
-  `, [order.shop_id]);
+  `, [order.shop_id, order_id]);
   if (shopRes.rows.length === 0) throw new Error('Shop not found');
   const shop = shopRes.rows[0];
   const availableCredit = Number(shop.max_bill_amount) - Number(shop.current_outstanding);
@@ -1296,38 +1312,55 @@ async function getSalesRepresentativesWithStats() {
   `);
   
   const representatives = await Promise.all(repsRes.rows.map(async (rep) => {
-    // Get shop assignments
-    const shopsRes = await pool.query(`
-      SELECT COUNT(*) as shop_count
-      FROM shops 
-      WHERE sales_rep_id = $1
-    `, [rep.id]);
-    
-    // Get orders and calculate statistics
-    const ordersRes = await pool.query(`
-      SELECT o.id, o.total, o.created_at, o.status,
-        COALESCE(SUM(p.amount), 0) as collected_amount
-      FROM orders o
-      LEFT JOIN payments p ON o.id = p.order_id
-      WHERE o.sales_rep_id = $1
-      AND o.status = 'approved'
-      GROUP BY o.id, o.total, o.created_at, o.status
-    `, [rep.id]);
-    
+    const [shopsRes, ordersRes, pendingRes, rejectedRes, lastOrderRes, lastCollectionRes, returnsRes] = await Promise.all([
+      pool.query(
+        `SELECT COUNT(*) as shop_count FROM shops WHERE sales_rep_id = $1`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT o.id, o.total, o.created_at,
+           COALESCE(SUM(p.amount), 0) as collected_amount
+         FROM orders o
+         LEFT JOIN payments p ON o.id = p.order_id
+         WHERE o.sales_rep_id = $1 AND o.status = 'approved'
+         GROUP BY o.id, o.total, o.created_at`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as value
+         FROM orders WHERE sales_rep_id = $1 AND status = 'pending'`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as count FROM orders WHERE sales_rep_id = $1 AND status = 'rejected'`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT MAX(created_at) as last_order_date FROM orders WHERE sales_rep_id = $1`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT MAX(created_at) as last_collection_date FROM payments WHERE sales_rep_id = $1`,
+        [rep.id]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as count FROM order_logs WHERE sales_rep_id = $1 AND action = 'return'`,
+        [rep.id]
+      ),
+    ]);
+
     const orders = ordersRes.rows;
-    const totalRevenue = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+    const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
     const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
-    const collectedAmount = orders.reduce((sum, order) => sum + Number(order.collected_amount || 0), 0);
+    const collectedAmount = orders.reduce((sum, o) => sum + Number(o.collected_amount || 0), 0);
     const outstandingAmount = totalRevenue - collectedAmount;
     const collectionRate = totalRevenue > 0 ? (collectedAmount / totalRevenue) * 100 : 0;
-    
-    // Updated performance rating logic
+
     let performanceRating = 'Poor';
     if (collectionRate >= 75) performanceRating = 'Excellent';
     else if (collectionRate >= 50) performanceRating = 'Good';
     else if (collectionRate >= 25) performanceRating = 'Average';
-    // else remains 'Poor'
-    
+
     return {
       ...rep,
       shop_count: Number(shopsRes.rows[0]?.shop_count || 0),
@@ -1338,7 +1371,13 @@ async function getSalesRepresentativesWithStats() {
       collected_amount: collectedAmount,
       collection_rate: collectionRate,
       performance_rating: performanceRating,
-      status: 'Active'
+      pending_order_count: Number(pendingRes.rows[0]?.count || 0),
+      pending_order_value: Number(pendingRes.rows[0]?.value || 0),
+      rejected_order_count: Number(rejectedRes.rows[0]?.count || 0),
+      return_count: Number(returnsRes.rows[0]?.count || 0),
+      last_order_date: lastOrderRes.rows[0]?.last_order_date || null,
+      last_collection_date: lastCollectionRes.rows[0]?.last_collection_date || null,
+      status: 'Active',
     };
   }));
   
@@ -2021,6 +2060,74 @@ module.exports.logSalesQuantityAction = logSalesQuantityAction;
 module.exports.updateProductInventory = updateProductInventory;
 module.exports.listSalesQuantityLogs = listSalesQuantityLogs;
 module.exports.getInventoryStats = getInventoryStats; 
+async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id } = {}) {
+  const params = [];
+  const conditions = [];
+
+  if (start_date) {
+    params.push(start_date);
+    conditions.push(`DATE(p.created_at) >= $${params.length}`);
+  }
+  if (end_date) {
+    params.push(end_date);
+    conditions.push(`DATE(p.created_at) <= $${params.length}`);
+  }
+  if (sales_rep_id) {
+    params.push(sales_rep_id);
+    conditions.push(`p.sales_rep_id = $${params.length}::text`);
+  }
+  if (shop_id) {
+    params.push(shop_id);
+    conditions.push(`s.id = $${params.length}::text`);
+  }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const result = await pool.query(`
+    SELECT
+      p.id            AS payment_id,
+      p.amount,
+      p.notes         AS payment_notes,
+      p.created_at    AS payment_date,
+      o.id            AS order_id,
+      o.total         AS order_total,
+      s.id            AS shop_id,
+      s.name          AS shop_name,
+      s.address       AS shop_address,
+      u.id            AS sales_rep_id,
+      u.first_name    AS sales_rep_first_name,
+      u.last_name     AS sales_rep_last_name,
+      u.email         AS sales_rep_email
+    FROM payments p
+    JOIN orders  o ON p.order_id    = o.id
+    JOIN shops   s ON o.shop_id     = s.id
+    JOIN users   u ON p.sales_rep_id = u.id
+    ${where}
+    ORDER BY p.created_at DESC
+    LIMIT 500
+  `, params);
+
+  return result.rows.map(row => ({
+    payment_id:    row.payment_id,
+    payment_amount: Number(row.amount),
+    payment_notes:  row.payment_notes,
+    payment_date:   row.payment_date,
+    order_id:       row.order_id,
+    order_total:    Number(row.order_total),
+    shop: {
+      id:      row.shop_id,
+      name:    row.shop_name,
+      address: row.shop_address,
+    },
+    sales_rep: {
+      id:         row.sales_rep_id,
+      first_name: row.sales_rep_first_name,
+      last_name:  row.sales_rep_last_name,
+      email:      row.sales_rep_email,
+    },
+  }));
+}
+
 module.exports.getRepresentativeCollections = getRepresentativeCollections;
 module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats;
 module.exports.getShopDetails = getShopDetails;
@@ -2028,3 +2135,4 @@ module.exports.recordExpiry = recordExpiry;
 module.exports.listExpiryLogs = listExpiryLogs;
 module.exports.recordPurchase = recordPurchase;
 module.exports.listPurchaseLogs = listPurchaseLogs;
+module.exports.getAdminCollections = getAdminCollections;

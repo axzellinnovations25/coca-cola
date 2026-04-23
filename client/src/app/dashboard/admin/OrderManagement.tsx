@@ -231,30 +231,16 @@ export default function OrderManagement() {
     const product = products.find(p => p.id === newProductId);
     if (!product) return;
 
-    setEditItems(prev => {
-      const existing = prev.find(item => item.product_id === product.id);
-      if (existing) {
-        return prev.map(item =>
-          item.product_id === product.id
-            ? {
-                ...item,
-                quantity: item.quantity + newProductQty,
-                total: (item.quantity + newProductQty) * item.unit_price
-              }
-            : item
-        );
+    setEditItems(prev => [
+      ...prev,
+      {
+        product_id: product.id,
+        name: product.name,
+        unit_price: product.unit_price,
+        quantity: newProductQty,
+        total: product.unit_price * newProductQty
       }
-      return [
-        ...prev,
-        {
-          product_id: product.id,
-          name: product.name,
-          unit_price: product.unit_price,
-          quantity: newProductQty,
-          total: product.unit_price * newProductQty
-        }
-      ];
-    });
+    ]);
     setNewProductId('');
     setNewProductQty(1);
   };
@@ -901,13 +887,18 @@ export default function OrderManagement() {
                   {editItems.map((item, idx) => (
                     <div key={`${item.product_id}-${idx}`} className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-lg px-4 py-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.unit_price.toFixed(2)} LKR each</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
+                          {item.unit_price === 0 && (
+                            <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-xs font-bold bg-green-100 text-green-700">FREE</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">{item.unit_price === 0 ? 'Free item' : `${item.unit_price.toFixed(2)} LKR each`}</p>
                       </div>
                       <input type="number" min={1} value={item.quantity}
-                        onChange={(e) => { const qty = Number(e.target.value); setEditItems(prev => prev.map(i => i.product_id === item.product_id ? { ...i, quantity: qty, total: i.unit_price * qty } : i)); }}
+                        onChange={(e) => { const qty = Number(e.target.value); setEditItems(prev => prev.map((i, index) => index === idx ? { ...i, quantity: qty, total: i.unit_price * qty } : i)); }}
                         className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
-                      <button onClick={() => setEditItems(prev => prev.filter(i => i.product_id !== item.product_id))}
+                      <button onClick={() => setEditItems(prev => prev.filter((_, index) => index !== idx))}
                         className="w-8 h-8 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
