@@ -57,7 +57,7 @@ interface DetailedOrder extends Order {
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
 
-const parseDate = (value: string | number | null | undefined) => {
+const parseDate = (value: string | number | Date | null | undefined) => {
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) return value;
   if (typeof value === 'number') {
