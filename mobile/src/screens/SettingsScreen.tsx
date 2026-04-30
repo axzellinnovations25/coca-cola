@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Linking,
   NativeModules,
   PermissionsAndroid,
   Platform,
@@ -20,6 +21,7 @@ import { ThemeColors, useThemeColors } from '../theme/colors';
 
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
+const PRIVACY_POLICY_URL = 'https://sbdistribution.store/privacy-policy/';
 
 interface BluetoothPrinterDevice {
   deviceName: string;
@@ -166,6 +168,15 @@ export default function SettingsScreen() {
     ]);
   };
 
+  const openPrivacyPolicy = async () => {
+    const supported = await Linking.canOpenURL(PRIVACY_POLICY_URL);
+    if (!supported) {
+      Alert.alert('Unable to open link', 'Please visit the privacy policy from your browser.');
+      return;
+    }
+    await Linking.openURL(PRIVACY_POLICY_URL);
+  };
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -242,6 +253,8 @@ export default function SettingsScreen() {
         <SettingsRow icon="code-slash" label="Version" value="1.0.0" />
         <View style={styles.divider} />
         <SettingsRow icon="server" label="Platform" value={Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web'} />
+        <View style={styles.divider} />
+        <SettingsRow icon="shield-checkmark" label="Privacy Policy" onPress={openPrivacyPolicy} />
       </View>
 
       {/* Logout */}

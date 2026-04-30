@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0f766e"
     },
     "extra": {
       "apiBaseUrlProd": "https://api.sbdistribution.store",
@@ -33,7 +33,7 @@
       ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0f766e"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
