@@ -1,7 +1,7 @@
 'use client';
 
 import { jwtDecode } from 'jwt-decode';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 
 interface User {
@@ -47,8 +47,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
 
   const isAuthenticated = !!user;
+
+  const isPublicRoute =
+    pathname?.startsWith('/privacy-policy') ||
+    pathname?.startsWith('/support');
 
   // Enhanced storage functions with expiration handling
   const setPersistentStorage = (key: string, value: any, expirationDays: number = 5) => {
@@ -210,7 +215,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 // Refresh failed, clear storage and redirect to login
                 clearPersistentStorage('token');
                 clearPersistentStorage('sessionInfo');
-                router.push('/login');
+                if (!isPublicRoute) router.push('/login');
                 return;
               }
             } else {
@@ -224,26 +229,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
             if (!refreshed) {
               clearPersistentStorage('token');
               clearPersistentStorage('sessionInfo');
-              router.push('/login');
+              if (!isPublicRoute) router.push('/login');
               return;
             }
           }
         } else {
           // No token found, redirect to login
-          router.push('/login');
+          if (!isPublicRoute) router.push('/login');
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
         clearPersistentStorage('token');
         clearPersistentStorage('sessionInfo');
-        router.push('/login');
+        if (!isPublicRoute) router.push('/login');
       } finally {
         setIsLoading(false);
       }
     };
 
     initializeAuth();
-  }, [router]);
+  }, [isPublicRoute, router]);
 
   // Auto-refresh token before expiration
   useEffect(() => {
