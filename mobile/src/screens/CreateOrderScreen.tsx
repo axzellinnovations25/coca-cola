@@ -21,6 +21,7 @@ import ThermalPrinterModule from 'react-native-thermal-printer';
 import { apiFetch } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import DismissKeyboard from '../components/DismissKeyboard';
+import { getSavedIosPrinterName, printReceiptLinesOnIos, selectIosPrinter } from '../utils/printing';
 
 interface Shop {
   id: string;
@@ -236,6 +237,7 @@ export default function CreateOrderScreen() {
   const [loadingPrinters, setLoadingPrinters] = useState(false);
   const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedPrinterMac, setSelectedPrinterMac] = useState('');
+  const [selectedIosPrinterName, setSelectedIosPrinterName] = useState('');
   const [messageStatus, setMessageStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
     message: '',
@@ -308,6 +310,13 @@ export default function CreateOrderScreen() {
           if (cancelled) return;
           if (savedMac) {
             setSelectedPrinterMac(savedMac);
+          }
+        })
+        .catch(() => {});
+      getSavedIosPrinterName()
+        .then((printerName) => {
+          if (!cancelled && printerName) {
+            setSelectedIosPrinterName(printerName);
           }
         })
         .catch(() => {});
@@ -610,6 +619,25 @@ export default function CreateOrderScreen() {
   };
 
   const openPrinterPicker = async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        setLoadingPrinters(true);
+        setMessageStatus({ type: null, message: '' });
+        const printer = await selectIosPrinter();
+        setSelectedIosPrinterName(printer.name);
+        setMessageStatus({
+          type: 'success',
+          message: `Printer selected: ${printer.name}`,
+        });
+      } catch (err: any) {
+        const errorMessage = err?.message || 'Could not select iOS printer.';
+        setMessageStatus({ type: 'error', message: errorMessage });
+        Alert.alert('Printer', errorMessage);
+      } finally {
+        setLoadingPrinters(false);
+      }
+      return;
+    }
     setShowPrinterPicker(true);
     await refreshPairedPrinters();
   };
@@ -675,6 +703,21 @@ export default function CreateOrderScreen() {
     try {
       setPrinting(true);
       setMessageStatus({ type: null, message: '' });
+      if (Platform.OS === 'ios') {
+        await printReceiptLinesOnIos({
+          title: 'Sales Order Receipt',
+          lines: buildPrintableReceiptLines(DEFAULT_BLUETOOTH_PRINTER_PROFILE.printerNbrCharactersPerLine),
+        });
+        const printerName = await getSavedIosPrinterName();
+        if (printerName) setSelectedIosPrinterName(printerName);
+        setMessageStatus({
+          type: 'success',
+          message: printerName
+            ? `Print command sent to ${printerName}.`
+            : 'iOS print sheet opened.',
+        });
+        return;
+      }
       const devices = await loadPairedPrinters();
       if (!devices.length) {
         throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
@@ -1040,7 +1083,10 @@ export default function CreateOrderScreen() {
                   </Text>
                 ) : null}
                 <Text style={styles.printerMetaText}>
-                  Printer: {selectedPrinterMac || 'Not selected'}
+                  Printer:{' '}
+                  {Platform.OS === 'ios'
+                    ? selectedIosPrinterName || 'iOS print sheet'
+                    : selectedPrinterMac || 'Not selected'}
                 </Text>
 
                 <View style={styles.modalActions}>
@@ -1053,11 +1099,13 @@ export default function CreateOrderScreen() {
                     <Text style={styles.actionText}>Close</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.actionSecondary, printing && styles.buttonDisabled]}
+                    style={[styles.actionSecondary, (printing || loadingPrinters) && styles.buttonDisabled]}
                     onPress={openPrinterPicker}
-                    disabled={printing}
+                    disabled={printing || loadingPrinters}
                   >
-                    <Text style={styles.actionText}>Choose Printer</Text>
+                    <Text style={styles.actionText}>
+                      {Platform.OS === 'ios' ? 'Choose AirPrint Printer' : 'Choose Printer'}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.actionPrimary, (printing || loadingPrinters) && styles.buttonDisabled]}

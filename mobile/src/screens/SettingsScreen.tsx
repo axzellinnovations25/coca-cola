@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Linking,
-  NativeModules,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -18,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThermalPrinterModule from 'react-native-thermal-printer';
 import { useAuth } from '../context/AuthContext';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import { getSavedIosPrinterName, selectIosPrinter } from '../utils/printing';
 
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
@@ -81,6 +81,7 @@ export default function SettingsScreen() {
 
   const [printers, setPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedMac, setSelectedMac] = useState('');
+  const [selectedIosPrinterName, setSelectedIosPrinterName] = useState('');
   const [scanning, setScanning] = useState(false);
   const [showPrinterList, setShowPrinterList] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
@@ -89,6 +90,19 @@ export default function SettingsScreen() {
     user?.first_name && user?.last_name
       ? `${user.first_name} ${user.last_name}`
       : user?.email || 'Unknown';
+
+  useEffect(() => {
+    AsyncStorage.getItem(PRINTER_MAC_KEY)
+      .then((savedMac) => {
+        if (savedMac) setSelectedMac(savedMac);
+      })
+      .catch(() => {});
+    getSavedIosPrinterName()
+      .then((printerName) => {
+        if (printerName) setSelectedIosPrinterName(printerName);
+      })
+      .catch(() => {});
+  }, []);
 
   const requestBluetoothPermissions = async () => {
     if (Platform.OS !== 'android') return true;
@@ -110,6 +124,20 @@ export default function SettingsScreen() {
   };
 
   const handleScanPrinters = async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        setScanning(true);
+        setShowPrinterList(false);
+        const printer = await selectIosPrinter();
+        setSelectedIosPrinterName(printer.name);
+        Alert.alert('Printer selected', `${printer.name} is now your active AirPrint printer.`);
+      } catch (err: any) {
+        Alert.alert('Printer selection failed', err?.message || 'Could not select iOS printer.');
+      } finally {
+        setScanning(false);
+      }
+      return;
+    }
     if (
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function'
@@ -206,13 +234,21 @@ export default function SettingsScreen() {
       <Text style={styles.sectionTitle}>Printer</Text>
       <View style={styles.card}>
         <SettingsRow
-          icon="bluetooth"
-          label="Scan for Bluetooth Printers"
-          value={scanning ? 'Scanning...' : undefined}
+          icon={Platform.OS === 'ios' ? 'print' : 'bluetooth'}
+          label={Platform.OS === 'ios' ? 'Select AirPrint Printer' : 'Scan for Bluetooth Printers'}
+          value={
+            scanning
+              ? Platform.OS === 'ios'
+                ? 'Opening picker...'
+                : 'Scanning...'
+              : Platform.OS === 'ios'
+                ? selectedIosPrinterName
+                : undefined
+          }
           onPress={handleScanPrinters}
           loading={scanning}
         />
-        {showPrinterList && printers.length > 0 && (
+        {Platform.OS !== 'ios' && showPrinterList && printers.length > 0 && (
           <View style={styles.printerList}>
             <Text style={styles.printerListTitle}>Available printers</Text>
             {printers.map((printer) => (
@@ -237,7 +273,12 @@ export default function SettingsScreen() {
             ))}
           </View>
         )}
-        {selectedMac ? (
+        {Platform.OS === 'ios' && selectedIosPrinterName ? (
+          <View style={styles.activePrinterRow}>
+            <Ionicons name="print" size={14} color={colors.success} />
+            <Text style={styles.activePrinterText}>Active: {selectedIosPrinterName}</Text>
+          </View>
+        ) : selectedMac ? (
           <View style={styles.activePrinterRow}>
             <Ionicons name="print" size={14} color={colors.success} />
             <Text style={styles.activePrinterText}>Active: {selectedMac}</Text>

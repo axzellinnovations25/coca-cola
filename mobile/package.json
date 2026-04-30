@@ -20,6 +20,7 @@
     "expo-dev-client": "~6.0.20",
     "expo-haptics": "~15.0.8",
     "expo-linear-gradient": "~15.0.8",
+    "expo-print": "~15.0.8",
     "expo-splash-screen": "~31.0.12",
     "expo-status-bar": "~3.0.9",
     "jwt-decode": "^4.0.0",

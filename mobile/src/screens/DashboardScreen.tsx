@@ -20,6 +20,7 @@ import ThermalPrinterModule from 'react-native-thermal-printer';
 import { apiFetch } from '../api/api';
 import { DashboardSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import { getSavedIosPrinterName, printReceiptLinesOnIos } from '../utils/printing';
 
 const getTimeGreeting = () => {
   const hour = new Date().getHours();
@@ -349,6 +350,13 @@ export default function DashboardScreen() {
     ].join('\n') + '\n';
   };
 
+  const buildDashboardTestLines = () => [
+    'DASHBOARD TEST',
+    new Date().toLocaleString(),
+    '----------------',
+    'TEST OK',
+  ];
+
   const buildDashboardCpclTestPayload = () => {
     const lines = ['DASHBOARD TEST', new Date().toLocaleString(), 'TEST OK', '', ''];
     const startY = 24;
@@ -366,6 +374,20 @@ export default function DashboardScreen() {
     try {
       setPrintingTest(true);
       setPrintTestStatus({ type: null, message: '' });
+      if (Platform.OS === 'ios') {
+        await printReceiptLinesOnIos({
+          title: 'Dashboard Test',
+          lines: buildDashboardTestLines(),
+        });
+        const printerName = await getSavedIosPrinterName();
+        setPrintTestStatus({
+          type: 'success',
+          message: printerName
+            ? `Test command sent to ${printerName}.`
+            : 'iOS print sheet opened.',
+        });
+        return;
+      }
       const devices = await loadPairedPrinters();
       if (!devices.length) {
         throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
