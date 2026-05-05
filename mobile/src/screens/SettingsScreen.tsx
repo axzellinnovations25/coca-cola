@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThermalPrinterModule from 'react-native-thermal-printer';
 import { useAuth } from '../context/AuthContext';
 import { ThemeColors, useThemeColors } from '../theme/colors';
-import { getSavedIosPrinterName, selectIosPrinter } from '../utils/printing';
+import { getSavedIosBlePrinter, saveIosBlePrinter, scanIosBlePrinters } from '../services/iosBlePrinter';
 
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
@@ -81,7 +81,7 @@ export default function SettingsScreen() {
 
   const [printers, setPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedMac, setSelectedMac] = useState('');
-  const [selectedIosPrinterName, setSelectedIosPrinterName] = useState('');
+  const [selectedPrinterName, setSelectedPrinterName] = useState('');
   const [scanning, setScanning] = useState(false);
   const [showPrinterList, setShowPrinterList] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
@@ -97,9 +97,12 @@ export default function SettingsScreen() {
         if (savedMac) setSelectedMac(savedMac);
       })
       .catch(() => {});
-    getSavedIosPrinterName()
-      .then((printerName) => {
-        if (printerName) setSelectedIosPrinterName(printerName);
+    getSavedIosBlePrinter()
+      .then((printer) => {
+        if (printer) {
+          setSelectedMac(printer.macAddress);
+          setSelectedPrinterName(printer.deviceName);
+        }
       })
       .catch(() => {});
   }, []);
@@ -128,11 +131,17 @@ export default function SettingsScreen() {
       try {
         setScanning(true);
         setShowPrinterList(false);
-        const printer = await selectIosPrinter();
-        setSelectedIosPrinterName(printer.name);
-        Alert.alert('Printer selected', `${printer.name} is now your active AirPrint printer.`);
+        const devices = await scanIosBlePrinters(BLUETOOTH_SCAN_TIMEOUT_MS);
+        setPrinters(devices);
+        setShowPrinterList(true);
+        if (!devices.length) {
+          Alert.alert(
+            'No printers found',
+            'Turn on the printer and make sure it supports BLE printing, then try again.',
+          );
+        }
       } catch (err: any) {
-        Alert.alert('Printer selection failed', err?.message || 'Could not select iOS printer.');
+        Alert.alert('Scan failed', err?.message || 'Could not scan for Bluetooth printers.');
       } finally {
         setScanning(false);
       }
@@ -142,7 +151,7 @@ export default function SettingsScreen() {
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function'
     ) {
-      Alert.alert('Unavailable', 'Bluetooth printer module requires an Android EAS build.');
+      Alert.alert('Unavailable', 'Bluetooth printer module is unavailable in this build.');
       return;
     }
     try {
@@ -173,7 +182,12 @@ export default function SettingsScreen() {
   };
 
   const handleSelectPrinter = async (printer: BluetoothPrinterDevice) => {
-    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    if (Platform.OS === 'ios') {
+      await saveIosBlePrinter(printer);
+      setSelectedPrinterName(printer.deviceName);
+    } else {
+      await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    }
     setSelectedMac(printer.macAddress);
     Alert.alert('Printer selected', `${printer.deviceName || printer.macAddress} is now your active printer.`);
   };
@@ -234,21 +248,19 @@ export default function SettingsScreen() {
       <Text style={styles.sectionTitle}>Printer</Text>
       <View style={styles.card}>
         <SettingsRow
-          icon={Platform.OS === 'ios' ? 'print' : 'bluetooth'}
-          label={Platform.OS === 'ios' ? 'Select AirPrint Printer' : 'Scan for Bluetooth Printers'}
+          icon="bluetooth"
+          label="Scan for Bluetooth Printers"
           value={
             scanning
-              ? Platform.OS === 'ios'
-                ? 'Opening picker...'
-                : 'Scanning...'
-              : Platform.OS === 'ios'
-                ? selectedIosPrinterName
+              ? 'Scanning...'
+              : Platform.OS === 'ios' && selectedPrinterName
+                ? selectedPrinterName
                 : undefined
           }
           onPress={handleScanPrinters}
           loading={scanning}
         />
-        {Platform.OS !== 'ios' && showPrinterList && printers.length > 0 && (
+        {showPrinterList && printers.length > 0 && (
           <View style={styles.printerList}>
             <Text style={styles.printerListTitle}>Available printers</Text>
             {printers.map((printer) => (
@@ -273,10 +285,10 @@ export default function SettingsScreen() {
             ))}
           </View>
         )}
-        {Platform.OS === 'ios' && selectedIosPrinterName ? (
+        {Platform.OS === 'ios' && selectedPrinterName ? (
           <View style={styles.activePrinterRow}>
             <Ionicons name="print" size={14} color={colors.success} />
-            <Text style={styles.activePrinterText}>Active: {selectedIosPrinterName}</Text>
+            <Text style={styles.activePrinterText}>Active: {selectedPrinterName}</Text>
           </View>
         ) : selectedMac ? (
           <View style={styles.activePrinterRow}>
@@ -289,11 +301,9 @@ export default function SettingsScreen() {
       {/* App Info Section */}
       <Text style={styles.sectionTitle}>App</Text>
       <View style={styles.card}>
-        <SettingsRow icon="information-circle" label="App Name" value="MotionRep" />
+        <SettingsRow icon="information-circle" label="App Name" value="Rep Route" />
         <View style={styles.divider} />
         <SettingsRow icon="code-slash" label="Version" value="1.0.0" />
-        <View style={styles.divider} />
-        <SettingsRow icon="server" label="Platform" value={Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web'} />
         <View style={styles.divider} />
         <SettingsRow icon="shield-checkmark" label="Privacy Policy" onPress={openPrivacyPolicy} />
       </View>
