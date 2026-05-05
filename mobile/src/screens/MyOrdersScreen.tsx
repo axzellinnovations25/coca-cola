@@ -430,7 +430,7 @@ export default function MyOrdersScreen() {
     <View style={styles.container}>
         <FlatList
           data={filteredOrders}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `${item.id ?? 'order'}-${index}`}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -703,7 +703,7 @@ export default function MyOrdersScreen() {
                 ) : (
                   <FlatList
                     data={filteredProducts}
-                    keyExtractor={(item) => item.id}
+                    keyExtractor={(item, index) => `${item.id ?? 'product'}-${index}`}
                     style={styles.productList}
                     keyboardShouldPersistTaps="handled"
                     renderItem={({ item }) => (

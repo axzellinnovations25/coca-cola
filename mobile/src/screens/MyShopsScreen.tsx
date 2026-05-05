@@ -118,7 +118,7 @@ export default function MyShopsScreen() {
     <View style={styles.container}>
       <FlatList
         data={filtered}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${item.id ?? 'shop'}-${index}`}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
