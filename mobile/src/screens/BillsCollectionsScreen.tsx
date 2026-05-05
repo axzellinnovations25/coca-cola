@@ -316,7 +316,7 @@ export default function BillsCollectionsScreen() {
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
     setSelectedShopName(shopName ?? '');
-    setPaymentAmount(bill.outstanding.toFixed(2));
+    setPaymentAmount('');
     setPaymentNotes('');
     setShowNotesInput(false);
     setPaymentError('');
@@ -336,8 +336,9 @@ export default function BillsCollectionsScreen() {
       const items = response.order?.items || [];
       setReturnItems(items);
       const initialQuantities: Record<string, number> = {};
-      items.forEach((item: OrderItem) => {
-        initialQuantities[item.product_id] = 0;
+      items.forEach((item: OrderItem, index: number) => {
+        const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+        initialQuantities[lineKey] = 0;
       });
       setReturnQuantities(initialQuantities);
       setShowReturnModal(true);
@@ -397,9 +398,15 @@ export default function BillsCollectionsScreen() {
 
   const submitReturn = async () => {
     if (!returnOrderId) return;
-    const itemsToReturn = Object.entries(returnQuantities)
-      .filter(([, qty]) => qty > 0)
-      .map(([product_id, quantity]) => ({ product_id, quantity }));
+    const productQtyMap: Record<string, number> = {};
+    returnItems.forEach((item: OrderItem, index: number) => {
+      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+      const qty = returnQuantities[lineKey] ?? 0;
+      if (qty > 0) {
+        productQtyMap[item.product_id] = (productQtyMap[item.product_id] ?? 0) + qty;
+      }
+    });
+    const itemsToReturn = Object.entries(productQtyMap).map(([product_id, quantity]) => ({ product_id, quantity }));
 
     if (itemsToReturn.length === 0) {
       setReturnError('Select at least one item to return.');
@@ -1178,10 +1185,13 @@ export default function BillsCollectionsScreen() {
             <Text style={styles.modalTitle}>Return Products</Text>
             {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
             <View style={styles.returnList}>
-              {returnItems.map((item) => (
-                <View key={item.product_id} style={styles.returnRow}>
+              {returnItems.map((item, index) => (
+                <View key={`${item.product_id}-${index}`} style={styles.returnRow}>
                   <View style={styles.returnText}>
-                    <Text style={styles.returnTitle}>{item.name}</Text>
+                    <View style={styles.returnTitleRow}>
+                      <Text style={styles.returnTitle}>{item.name}</Text>
+                      {Number(item.unit_price) === 0 ? <Text style={styles.freeTag}>FREE</Text> : null}
+                    </View>
                     <Text style={styles.returnMeta}>Ordered: {item.quantity}</Text>
                   </View>
                   <TextInput
@@ -1189,10 +1199,15 @@ export default function BillsCollectionsScreen() {
                     placeholderTextColor={colors.textMuted}
                     style={styles.returnInput}
                     keyboardType="numeric"
-                    value={String(returnQuantities[item.product_id] ?? 0)}
+                    value={(() => {
+                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+                      const qty = returnQuantities[lineKey] ?? 0;
+                      return qty > 0 ? String(qty) : '';
+                    })()}
                     onChangeText={(value) => {
                       const qty = Number(value || 0);
-                      setReturnQuantities((prev) => ({ ...prev, [item.product_id]: qty }));
+                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+                      setReturnQuantities((prev) => ({ ...prev, [lineKey]: qty }));
                     }}
                   />
                 </View>
@@ -1653,9 +1668,25 @@ const makeStyles = (colors: ThemeColors) =>
   returnText: {
     flex: 1,
   },
+  returnTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   returnTitle: {
     color: colors.text,
     fontWeight: '600',
+  },
+  freeTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: colors.success,
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 12,
+    overflow: 'hidden',
   },
   returnMeta: {
     color: colors.textMuted,

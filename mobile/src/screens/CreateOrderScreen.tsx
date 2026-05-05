@@ -1185,7 +1185,7 @@ export default function CreateOrderScreen() {
               />
               <FlatList
                 data={filteredProducts}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item, index) => `${item.id ?? 'product'}-${index}`}
                 style={styles.productList}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
@@ -1232,7 +1232,7 @@ export default function CreateOrderScreen() {
               />
               <FlatList
                 data={filteredShops}
-                keyExtractor={(item) => item.id}
+                keyExtractor={(item, index) => `${item.id ?? 'shop'}-${index}`}
                 style={styles.productList}
                 keyboardShouldPersistTaps="handled"
                 renderItem={({ item }) => (
