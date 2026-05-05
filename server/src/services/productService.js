@@ -2,9 +2,10 @@ const pool = require('../db');
 const messagingService = require('./messagingService');
 const { randomUUID } = require('crypto');
 
-async function logProductAction({ product_id, user_id, action, details }) {
+async function logProductAction({ product_id, user_id, action, details, client }) {
   const logId = randomUUID();
-  await pool.query(
+  const executor = client || pool;
+  await executor.query(
     'INSERT INTO product_logs (id, product_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
     [logId, product_id, user_id, action, details ? JSON.stringify(details) : null]
   );
@@ -86,11 +87,12 @@ async function listProducts() {
 }
 
 async function addProduct({ name, description, unit_price, stock, user_id }) {
+  const id = randomUUID();
   const result = await pool.query(
-    `INSERT INTO products (name, description, unit_price, stock)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO products (id, name, description, unit_price, stock)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING *`,
-    [name, description, unit_price, stock]
+    [id, name, description, unit_price, stock]
   );
   const product = result.rows[0];
   await logProductAction({ product_id: product.id, user_id, action: 'add', details: { name, description, unit_price, stock } });
@@ -114,13 +116,46 @@ async function editProduct({ id, name, description, unit_price, stock, user_id }
 }
 
 async function deleteProduct(id, user_id) {
-  // Fetch before for log
-  const beforeRes = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
-  if (beforeRes.rows.length === 0) throw new Error('Product not found');
-  const before = beforeRes.rows[0];
-  const result = await pool.query('DELETE FROM products WHERE id = $1 RETURNING id', [id]);
-  if (result.rows.length === 0) throw new Error('Product not found');
-  await logProductAction({ product_id: id, user_id, action: 'delete', details: { before } });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Fetch before for log
+    const beforeRes = await client.query('SELECT * FROM products WHERE id = $1', [id]);
+    if (beforeRes.rows.length === 0) throw new Error('Product not found');
+    const before = beforeRes.rows[0];
+
+    // Prevent deleting products that are referenced by orders.
+    // Keeping order history is usually required; deleting would violate FK constraints.
+    const orderItemRefRes = await client.query(
+      'SELECT 1 FROM order_items WHERE product_id = $1 LIMIT 1',
+      [id]
+    );
+    if (orderItemRefRes.rows.length > 0) {
+      throw new Error('Cannot delete product: it is used in existing orders');
+    }
+
+    // Log before deleting, while the product row still exists (FK on product_logs.product_id).
+    await logProductAction({
+      product_id: id,
+      user_id,
+      action: 'delete',
+      details: { before },
+      client
+    });
+
+    // Remove dependent rows to satisfy FK constraints (preserving product deletion).
+    await client.query('DELETE FROM product_logs WHERE product_id = $1', [id]);
+
+    const result = await client.query('DELETE FROM products WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) throw new Error('Product not found');
+    await client.query('COMMIT');
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function listProductLogs() {
@@ -145,11 +180,12 @@ async function listShops() {
 }
 
 async function addShop({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, user_id }) {
+  const id = randomUUID();
   const result = await pool.query(
-    `INSERT INTO shops (name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO shops (id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills]
+    [id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills]
   );
   const shop = result.rows[0];
   await logShopAction({ shop_id: shop.id, user_id, action: 'add', details: { name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills } });
@@ -172,18 +208,39 @@ async function editShop({ id, name, address, owner_nic, email, phone, sales_rep_
 }
 
 async function deleteShop(id, user_id) {
-  const beforeRes = await pool.query('SELECT * FROM shops WHERE id = $1', [id]);
-  if (beforeRes.rows.length === 0) throw new Error('Shop not found');
-  const before = beforeRes.rows[0];
-  const result = await pool.query('DELETE FROM shops WHERE id = $1 RETURNING id', [id]);
-  if (result.rows.length === 0) throw new Error('Shop not found');
-  await logShopAction({ shop_id: id, user_id, action: 'delete', details: { before } });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const beforeRes = await client.query('SELECT * FROM shops WHERE id = $1', [id]);
+    if (beforeRes.rows.length === 0) throw new Error('Shop not found');
+
+    // Prevent deleting shops that are referenced by orders (keep order history).
+    const orderRefRes = await client.query('SELECT 1 FROM orders WHERE shop_id = $1 LIMIT 1', [id]);
+    if (orderRefRes.rows.length > 0) {
+      throw new Error('Cannot delete shop: it is used in existing orders');
+    }
+
+    // Remove dependent rows to satisfy FK constraints.
+    await client.query('DELETE FROM shop_logs WHERE shop_id = $1', [id]);
+
+    const result = await client.query('DELETE FROM shops WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) throw new Error('Shop not found');
+
+    await client.query('COMMIT');
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 async function logShopAction({ shop_id, user_id, action, details }) {
+  const logId = randomUUID();
   await pool.query(
-    'INSERT INTO shop_logs (shop_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, NOW())',
-    [shop_id, user_id, action, details ? JSON.stringify(details) : null]
+    'INSERT INTO shop_logs (id, shop_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
+    [logId, shop_id, user_id, action, details ? JSON.stringify(details) : null]
   );
 }
 
