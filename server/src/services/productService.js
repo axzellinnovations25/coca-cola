@@ -202,14 +202,14 @@ async function listAssignedShops(sales_rep_id) {
   const result = await pool.query(`
     SELECT s.*,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
         WHEN o.status = 'pending' THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -238,14 +238,14 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
         WHEN o.status = 'pending' THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -380,7 +380,7 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
         WHEN o.status = 'pending' AND o.id != $2 THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
@@ -388,7 +388,7 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
        WHERE o2.shop_id = s.id
        AND o2.id != $2
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(p.amount)::numeric FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -948,7 +948,7 @@ async function billsForRepresentative(sales_rep_id) {
   // Get all approved orders for these shops
   const ordersRes = await pool.query(`
     SELECT o.id, o.shop_id, o.created_at, o.total,
-      COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.order_id = o.id), 0) as collected
+      COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0) as collected
     FROM orders o
     WHERE o.shop_id = ANY($1::text[])
     AND o.status = 'approved'
@@ -995,7 +995,7 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
   const order = orderRes.rows[0];
   const total = Number(order.total);
   
-  const paymentsRes = await pool.query('SELECT COALESCE(SUM(amount),0) as collected FROM payments WHERE order_id = $1', [order_id]);
+  const paymentsRes = await pool.query('SELECT COALESCE(SUM(CAST(amount AS numeric)),0) as collected FROM payments WHERE order_id = $1', [order_id]);
   const collected = Number(paymentsRes.rows[0].collected);
   const outstanding = total - collected;
   
@@ -1036,10 +1036,10 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
       WHERE o.shop_id = $1 
       AND o.status = 'approved'
       AND o.total::numeric > (
-        SELECT COALESCE(SUM(p.amount), 0)
-        FROM payments p
-        WHERE p.order_id = o.id
-      )
+          SELECT COALESCE(SUM(CAST(p.amount AS numeric)), 0)
+          FROM payments p
+          WHERE p.order_id = o.id
+        )
     `, [order.shop_id]);
     
     const remainingBillsCount = parseInt(remainingBillsRes.rows[0].remaining_bills);
@@ -1305,7 +1305,9 @@ async function listPaymentLogs() {
 async function getSalesRepresentativesWithStats() {
   // Get all representatives
   const repsRes = await pool.query(`
-    SELECT id, first_name, last_name, email, phone_no, nic_no, role, created_at
+    -- Keep this query compatible with older schemas by selecting only core columns.
+    -- (Some deployments may not have phone_no/nic_no columns.)
+    SELECT id, first_name, last_name, email, role, created_at
     FROM users 
     WHERE role = 'representative'
     ORDER BY created_at DESC
@@ -1319,7 +1321,7 @@ async function getSalesRepresentativesWithStats() {
       ),
       pool.query(
         `SELECT o.id, o.total, o.created_at,
-           COALESCE(SUM(p.amount), 0) as collected_amount
+           COALESCE(SUM(CAST(p.amount AS numeric)), 0) as collected_amount
          FROM orders o
          LEFT JOIN payments p ON o.id = p.order_id
          WHERE o.sales_rep_id = $1 AND o.status = 'approved'
@@ -1327,7 +1329,7 @@ async function getSalesRepresentativesWithStats() {
         [rep.id]
       ),
       pool.query(
-        `SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as value
+        `SELECT COUNT(*) as count, COALESCE(SUM(CAST(total AS numeric)), 0) as value
          FROM orders WHERE sales_rep_id = $1 AND status = 'pending'`,
         [rep.id]
       ),
@@ -1437,7 +1439,7 @@ async function getOrderDetails(order_id) {
   
   // Get payment information
   const paymentsRes = await pool.query(`
-    SELECT COALESCE(SUM(amount), 0) as collected
+    SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as collected
     FROM payments
     WHERE order_id = $1
   `, [order_id]);
@@ -1606,7 +1608,7 @@ async function getPaymentDetails(payment_id) {
     WHERE o.shop_id = $1 
     AND o.status = 'approved'
     AND o.total > (
-      SELECT COALESCE(SUM(p.amount), 0)
+      SELECT COALESCE(SUM(CAST(p.amount AS numeric)), 0)
       FROM payments p
       WHERE p.order_id = o.id
     )
@@ -1616,7 +1618,7 @@ async function getPaymentDetails(payment_id) {
 
   // Get total collected for this order
   const collectedRes = await pool.query(`
-    SELECT COALESCE(SUM(amount), 0) as collected
+    SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as collected
     FROM payments 
     WHERE order_id = $1
   `, [paymentData.order_id]);
@@ -1684,7 +1686,7 @@ async function getRepresentativeCollections(sales_rep_id) {
   const collections = await Promise.all(result.rows.map(async (row) => {
     // Get total collected for this order before this payment
     const previousPaymentsRes = await pool.query(`
-      SELECT COALESCE(SUM(amount), 0) as previous_collected
+      SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as previous_collected
       FROM payments 
       WHERE order_id = $1 AND created_at < $2
     `, [row.order_id, row.payment_date]);
@@ -1728,10 +1730,10 @@ async function getRepresentativeCollectionStats(sales_rep_id) {
   const result = await pool.query(`
     SELECT 
       COUNT(*) as total_collections,
-      COALESCE(SUM(p.amount), 0) as total_amount_collected,
+      COALESCE(SUM(CAST(p.amount AS numeric)), 0) as total_amount_collected,
       COUNT(DISTINCT o.shop_id) as unique_shops,
       COUNT(DISTINCT o.id) as unique_orders,
-      AVG(p.amount) as average_collection_amount,
+      AVG(CAST(p.amount AS numeric)) as average_collection_amount,
       MIN(p.created_at) as first_collection_date,
       MAX(p.created_at) as last_collection_date
     FROM payments p
@@ -1745,7 +1747,7 @@ async function getRepresentativeCollectionStats(sales_rep_id) {
   const todayResult = await pool.query(`
     SELECT 
       COUNT(*) as today_collections,
-      COALESCE(SUM(amount), 0) as today_amount
+      COALESCE(SUM(CAST(amount AS numeric)), 0) as today_amount
     FROM payments 
     WHERE sales_rep_id = $1::text 
     AND DATE(created_at) = CURRENT_DATE
@@ -1757,7 +1759,7 @@ async function getRepresentativeCollectionStats(sales_rep_id) {
   const monthResult = await pool.query(`
     SELECT 
       COUNT(*) as month_collections,
-      COALESCE(SUM(amount), 0) as month_amount
+      COALESCE(SUM(CAST(amount AS numeric)), 0) as month_amount
     FROM payments 
     WHERE sales_rep_id = $1::text 
     AND DATE_TRUNC('month', created_at::timestamp) = DATE_TRUNC('month', CURRENT_DATE)

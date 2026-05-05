@@ -1,10 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
   Linking,
-  NativeModules,
   PermissionsAndroid,
   Platform,
   ScrollView,
@@ -18,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ThermalPrinterModule from 'react-native-thermal-printer';
 import { useAuth } from '../context/AuthContext';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import { getSavedIosBlePrinter, saveIosBlePrinter, scanIosBlePrinters } from '../services/iosBlePrinter';
 
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
@@ -81,6 +81,7 @@ export default function SettingsScreen() {
 
   const [printers, setPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedMac, setSelectedMac] = useState('');
+  const [selectedPrinterName, setSelectedPrinterName] = useState('');
   const [scanning, setScanning] = useState(false);
   const [showPrinterList, setShowPrinterList] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
@@ -89,6 +90,22 @@ export default function SettingsScreen() {
     user?.first_name && user?.last_name
       ? `${user.first_name} ${user.last_name}`
       : user?.email || 'Unknown';
+
+  useEffect(() => {
+    AsyncStorage.getItem(PRINTER_MAC_KEY)
+      .then((savedMac) => {
+        if (savedMac) setSelectedMac(savedMac);
+      })
+      .catch(() => {});
+    getSavedIosBlePrinter()
+      .then((printer) => {
+        if (printer) {
+          setSelectedMac(printer.macAddress);
+          setSelectedPrinterName(printer.deviceName);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const requestBluetoothPermissions = async () => {
     if (Platform.OS !== 'android') return true;
@@ -110,11 +127,31 @@ export default function SettingsScreen() {
   };
 
   const handleScanPrinters = async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        setScanning(true);
+        setShowPrinterList(false);
+        const devices = await scanIosBlePrinters(BLUETOOTH_SCAN_TIMEOUT_MS);
+        setPrinters(devices);
+        setShowPrinterList(true);
+        if (!devices.length) {
+          Alert.alert(
+            'No printers found',
+            'Turn on the printer and make sure it supports BLE printing, then try again.',
+          );
+        }
+      } catch (err: any) {
+        Alert.alert('Scan failed', err?.message || 'Could not scan for Bluetooth printers.');
+      } finally {
+        setScanning(false);
+      }
+      return;
+    }
     if (
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function'
     ) {
-      Alert.alert('Unavailable', 'Bluetooth printer module requires an Android EAS build.');
+      Alert.alert('Unavailable', 'Bluetooth printer module is unavailable in this build.');
       return;
     }
     try {
@@ -145,7 +182,12 @@ export default function SettingsScreen() {
   };
 
   const handleSelectPrinter = async (printer: BluetoothPrinterDevice) => {
-    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    if (Platform.OS === 'ios') {
+      await saveIosBlePrinter(printer);
+      setSelectedPrinterName(printer.deviceName);
+    } else {
+      await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    }
     setSelectedMac(printer.macAddress);
     Alert.alert('Printer selected', `${printer.deviceName || printer.macAddress} is now your active printer.`);
   };
@@ -208,7 +250,13 @@ export default function SettingsScreen() {
         <SettingsRow
           icon="bluetooth"
           label="Scan for Bluetooth Printers"
-          value={scanning ? 'Scanning...' : undefined}
+          value={
+            scanning
+              ? 'Scanning...'
+              : Platform.OS === 'ios' && selectedPrinterName
+                ? selectedPrinterName
+                : undefined
+          }
           onPress={handleScanPrinters}
           loading={scanning}
         />
@@ -237,7 +285,12 @@ export default function SettingsScreen() {
             ))}
           </View>
         )}
-        {selectedMac ? (
+        {Platform.OS === 'ios' && selectedPrinterName ? (
+          <View style={styles.activePrinterRow}>
+            <Ionicons name="print" size={14} color={colors.success} />
+            <Text style={styles.activePrinterText}>Active: {selectedPrinterName}</Text>
+          </View>
+        ) : selectedMac ? (
           <View style={styles.activePrinterRow}>
             <Ionicons name="print" size={14} color={colors.success} />
             <Text style={styles.activePrinterText}>Active: {selectedMac}</Text>
@@ -248,11 +301,9 @@ export default function SettingsScreen() {
       {/* App Info Section */}
       <Text style={styles.sectionTitle}>App</Text>
       <View style={styles.card}>
-        <SettingsRow icon="information-circle" label="App Name" value="MotionRep" />
+        <SettingsRow icon="information-circle" label="App Name" value="Rep Route" />
         <View style={styles.divider} />
         <SettingsRow icon="code-slash" label="Version" value="1.0.0" />
-        <View style={styles.divider} />
-        <SettingsRow icon="server" label="Platform" value={Platform.OS === 'android' ? 'Android' : Platform.OS === 'ios' ? 'iOS' : 'Web'} />
         <View style={styles.divider} />
         <SettingsRow icon="shield-checkmark" label="Privacy Policy" onPress={openPrivacyPolicy} />
       </View>

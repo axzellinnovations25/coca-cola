@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MotionRep Rep",
+    "name": "Rep Route",
     "slug": "motionrep-rep",
     "owner": "thush24",
     "version": "1.0.0",
@@ -8,6 +8,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "react-native-ble-plx",
+        {
+          "bluetoothAlwaysPermission": "Rep Route uses Bluetooth to connect to receipt printers."
+        }
+      ]
+    ],
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -24,7 +32,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.thushanth.motionreprep",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSBluetoothAlwaysUsageDescription": "Rep Route uses Bluetooth to connect to receipt printers."
       }
     },
     "android": {

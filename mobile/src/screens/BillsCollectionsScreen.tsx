@@ -25,6 +25,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import {
+  getSavedIosBlePrinter,
+  printReceiptLinesWithIosBlePrinter,
+  saveIosBlePrinter,
+  scanIosBlePrinters,
+} from '../services/iosBlePrinter';
 
 interface Bill {
   id: string;
@@ -238,6 +244,7 @@ export default function BillsCollectionsScreen() {
   const [showPrinterPicker, setShowPrinterPicker] = useState(false);
   const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedPrinterMac, setSelectedPrinterMac] = useState('');
+  const [selectedIosPrinterName, setSelectedIosPrinterName] = useState('');
   const [printStatus, setPrintStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
     message: '',
@@ -275,6 +282,14 @@ export default function BillsCollectionsScreen() {
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
           if (savedMac) setSelectedPrinterMac(savedMac);
+        })
+        .catch(() => {});
+      getSavedIosBlePrinter()
+        .then((printer) => {
+          if (printer) {
+            setSelectedPrinterMac(printer.macAddress);
+            setSelectedIosPrinterName(printer.deviceName);
+          }
         })
         .catch(() => {});
     }, [fetchBills]),
@@ -472,7 +487,7 @@ export default function BillsCollectionsScreen() {
 
   const requestBluetoothPermissions = async () => {
     if (Platform.OS !== 'android') {
-      throw new Error('Bluetooth printing is supported on Android only in this app.');
+      return true;
     }
     if (Platform.Version >= 31) {
       const results = await PermissionsAndroid.requestMultiple([
@@ -503,12 +518,22 @@ export default function BillsCollectionsScreen() {
   };
 
   const loadPairedPrinters = async () => {
+    if (Platform.OS === 'ios') {
+      const savedPrinter = await getSavedIosBlePrinter();
+      if (savedPrinter) {
+        setSelectedPrinterMac(savedPrinter.macAddress);
+        setSelectedIosPrinterName(savedPrinter.deviceName);
+      }
+      const devices = await scanIosBlePrinters(BLUETOOTH_SCAN_TIMEOUT_MS);
+      setPairedPrinters(devices);
+      return devices;
+    }
     if (
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function' ||
       typeof ThermalPrinterModule.printBluetooth !== 'function'
     ) {
-      throw new Error('Bluetooth printer module is unavailable. Use an Android dev/EAS build (not Expo Go).');
+      throw new Error('Bluetooth printer module is unavailable in this build.');
     }
     const granted = await requestBluetoothPermissions();
     if (!granted) throw new Error('Bluetooth permission denied.');
@@ -529,7 +554,9 @@ export default function BillsCollectionsScreen() {
       if (!devices.length) {
         setPrintStatus({
           type: 'error',
-          message: 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+          message: Platform.OS === 'ios'
+            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
+            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
         });
       }
     } catch (err: any) {
@@ -547,7 +574,12 @@ export default function BillsCollectionsScreen() {
   };
 
   const choosePrinter = async (printer: BluetoothPrinterDevice) => {
-    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    if (Platform.OS === 'ios') {
+      await saveIosBlePrinter(printer);
+      setSelectedIosPrinterName(printer.deviceName);
+    } else {
+      await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    }
     setSelectedPrinterMac(printer.macAddress);
     setShowPrinterPicker(false);
     setPrintStatus({
@@ -652,7 +684,11 @@ export default function BillsCollectionsScreen() {
       setPrintStatus({ type: null, message: '' });
       const devices = await loadPairedPrinters();
       if (!devices.length) {
-        throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
+        throw new Error(
+          Platform.OS === 'ios'
+            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
+            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+        );
       }
       const macAddress = await resolveBluetoothMacAddress(devices);
       if (!macAddress) {
@@ -667,7 +703,10 @@ export default function BillsCollectionsScreen() {
       const selectedDevice = devices.find((printer) => printer.macAddress === macAddress) || null;
       const printerProfile = getBluetoothPrinterProfile(selectedDevice?.deviceName);
       const useCpcl = isLikelyCpclPrinter(selectedDevice?.deviceName) && hasNativeBluetoothRawPrint();
-      if (useCpcl) {
+      if (Platform.OS === 'ios') {
+        const lines = buildPaymentPrintableLines(printerProfile.printerNbrCharactersPerLine);
+        await printReceiptLinesWithIosBlePrinter(macAddress, lines);
+      } else if (useCpcl) {
         const payload = buildPaymentCpclPayload(Math.min(CPCL_RENDER_LINE_WIDTH, printerProfile.printerNbrCharactersPerLine));
         await (ThermalPrinterModule as any).printBluetoothRaw({ macAddress, payload });
       } else {
@@ -676,7 +715,7 @@ export default function BillsCollectionsScreen() {
       }
       setPrintStatus({
         type: 'success',
-        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
+        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${Platform.OS === 'ios' ? ' (BLE)' : useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
       });
     } catch (err: any) {
       const errorMessage = err?.message || 'Failed to print payment receipt.';
@@ -1017,18 +1056,25 @@ export default function BillsCollectionsScreen() {
                   {printStatus.message}
                 </Text>
               ) : null}
-              <Text style={styles.modalLabel}>Printer: {selectedPrinterMac || 'Not selected'}</Text>
+              <Text style={styles.modalLabel}>
+                Printer:{' '}
+                {Platform.OS === 'ios'
+                  ? selectedIosPrinterName || 'Not selected'
+                  : selectedPrinterMac || 'Not selected'}
+              </Text>
 
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.actionSecondary} onPress={closePaymentReceipt}>
                   <Text style={styles.actionText}>Close</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionSecondary, printing && styles.actionDisabled]}
+                  style={[styles.actionSecondary, (printing || loadingPrinters) && styles.actionDisabled]}
                   onPress={openPrinterPicker}
-                  disabled={printing}
+                  disabled={printing || loadingPrinters}
                 >
-                  <Text style={styles.actionText}>Choose Printer</Text>
+                  <Text style={styles.actionText}>
+                    Choose Printer
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionPrimary, (printing || loadingPrinters) && styles.actionDisabled]}
@@ -1066,7 +1112,9 @@ export default function BillsCollectionsScreen() {
             {loadingPrinters ? (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={styles.centerText}>Loading paired printers...</Text>
+                <Text style={styles.centerText}>
+                  {Platform.OS === 'ios' ? 'Scanning Bluetooth printers...' : 'Loading paired printers...'}
+                </Text>
               </View>
             ) : pairedPrinters.length > 0 ? (
               <FlatList
@@ -1090,7 +1138,11 @@ export default function BillsCollectionsScreen() {
                 )}
               />
             ) : (
-              <Text style={styles.emptyText}>No paired Bluetooth printers found.</Text>
+              <Text style={styles.emptyText}>
+                {Platform.OS === 'ios'
+                  ? 'No BLE printers found.'
+                  : 'No paired Bluetooth printers found.'}
+              </Text>
             )}
             <View style={styles.modalActions}>
               <TouchableOpacity
