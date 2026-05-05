@@ -40,6 +40,7 @@ exports.deleteProduct = async (req, res) => {
     await productService.deleteProduct(id, user_id);
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {
+    console.error('deleteProduct error:', error);
     res.status(400).json({ error: error.message });
   }
 };
