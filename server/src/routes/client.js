@@ -19,13 +19,13 @@ function requireSalesRep(req, res, next) {
 }
 
 // POST /api/:client/users (protected)
-router.post('/users', authenticateJWT, userController.createUser);
+router.post('/users', authenticateJWT, requireAdminOrSuperadmin, userController.createUser);
 // GET /api/:client/users (protected)
 router.get('/users', authenticateJWT, userController.listUsers);
 // PUT /api/:client/users/:id (protected)
-router.put('/users/:id', authenticateJWT, userController.editUser);
+router.put('/users/:id', authenticateJWT, requireAdminOrSuperadmin, userController.editUser);
 // DELETE /api/:client/users/:id (protected)
-router.delete('/users/:id', authenticateJWT, userController.deleteUser);
+router.delete('/users/:id', authenticateJWT, requireAdminOrSuperadmin, userController.deleteUser);
 // GET /api/:client/logs (protected)
 router.get('/logs', authenticateJWT, userController.getLogs);
 // POST /api/:client/login (public)

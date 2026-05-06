@@ -143,29 +143,101 @@ async function listUsersService(requestingUser) {
   return result.rows;
 }
 
-async function editUserService({ id, first_name, last_name, email, nic_no, phone_no, role, edited_by }) {
-  if (!id || !first_name || !last_name || !email || !nic_no || !phone_no || !role) {
-    throw new Error('All fields are required');
-  }
-  if (!['superadmin', 'admin', 'representative'].includes(role)) {
-    throw new Error('Invalid role');
-  }
-  // Check unique email (exclude current user)
-  const emailCheck = await pool.query('SELECT 1 FROM users WHERE email = $1 AND id != $2', [email, id]);
-  if (emailCheck.rows.length > 0) {
-    throw new Error('Email already exists');
-  }
-  // Check unique NIC (exclude current user)
-  const nicCheck = await pool.query('SELECT 1 FROM users WHERE nic_no = $1 AND id != $2', [nic_no, id]);
-  if (nicCheck.rows.length > 0) {
-    throw new Error('NIC No already exists');
+async function editUserService({ id, first_name, last_name, email, nic_no, phone_no, role, password, requestingUser, edited_by }) {
+  if (!requestingUser || !requestingUser.role) {
+    throw new Error('Access denied');
   }
   // Fetch user before update for audit log
   const beforeRes = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
   if (beforeRes.rows.length === 0) throw new Error('User not found');
   const beforeUser = beforeRes.rows[0];
+
+  // Authorization rules:
+  // - superadmin can edit any user fields, including password
+  // - admin can only edit representatives, and cannot promote roles
+  if (requestingUser.role === 'admin') {
+    if (beforeUser.role !== 'representative') {
+      throw new Error('Access denied');
+    }
+    if (role && role !== 'representative') {
+      throw new Error('Access denied');
+    }
+    if (password) {
+      throw new Error('Access denied');
+    }
+  } else if (requestingUser.role !== 'superadmin') {
+    throw new Error('Access denied');
+  }
+
+  const nextFirstName = first_name ?? beforeUser.first_name;
+  const nextLastName = last_name ?? beforeUser.last_name;
+  const nextEmail = email ?? beforeUser.email;
+  const nextNic = nic_no ?? beforeUser.nic_no;
+  const nextPhone = phone_no ?? beforeUser.phone_no;
+  const nextRole = role ?? beforeUser.role;
+
+  if (requestingUser.role !== 'superadmin') {
+    if (!first_name || !last_name || !email || !nic_no || !phone_no || !nextRole) {
+      throw new Error('All fields are required');
+    }
+  } else {
+    const hasAnyChange =
+      first_name !== undefined ||
+      last_name !== undefined ||
+      email !== undefined ||
+      nic_no !== undefined ||
+      phone_no !== undefined ||
+      role !== undefined ||
+      password !== undefined;
+    if (!hasAnyChange) {
+      throw new Error('No changes provided');
+    }
+  }
+
+  if (!['superadmin', 'admin', 'representative'].includes(nextRole)) {
+    throw new Error('Invalid role');
+  }
+
+  if (email !== undefined) {
+    const emailCheck = await pool.query('SELECT 1 FROM users WHERE email = $1 AND id != $2', [nextEmail, id]);
+    if (emailCheck.rows.length > 0) {
+      throw new Error('Email already exists');
+    }
+  }
+  if (nic_no !== undefined) {
+    const nicCheck = await pool.query('SELECT 1 FROM users WHERE nic_no = $1 AND id != $2', [nextNic, id]);
+    if (nicCheck.rows.length > 0) {
+      throw new Error('NIC No already exists');
+    }
+  }
+
+  let passwordHash = null;
+  if (password) {
+    if (requestingUser.role !== 'superadmin') {
+      throw new Error('Access denied');
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      throw new Error('Password must be at least 8 characters long');
+    }
+    passwordHash = await hashPassword(password);
+  }
+
   // Update user
-  const updateQuery = `
+  const updateQuery = passwordHash
+    ? `
+    UPDATE users SET
+      first_name = $1,
+      last_name = $2,
+      email = $3,
+      nic_no = $4,
+      phone_no = $5,
+      role = $6,
+      password_hash = $7,
+      updated_at = now()
+    WHERE id = $8
+    RETURNING id, first_name, last_name, email, nic_no, phone_no, role, created_at
+  `
+    : `
     UPDATE users SET
       first_name = $1,
       last_name = $2,
@@ -177,7 +249,9 @@ async function editUserService({ id, first_name, last_name, email, nic_no, phone
     WHERE id = $7
     RETURNING id, first_name, last_name, email, nic_no, phone_no, role, created_at
   `;
-  const values = [first_name, last_name, email, nic_no, phone_no, role, id];
+  const values = passwordHash
+    ? [nextFirstName, nextLastName, nextEmail, nextNic, nextPhone, nextRole, passwordHash, id]
+    : [nextFirstName, nextLastName, nextEmail, nextNic, nextPhone, nextRole, id];
   const result = await pool.query(updateQuery, values);
   if (result.rows.length === 0) throw new Error('User not found');
   const afterUser = result.rows[0];
@@ -203,6 +277,7 @@ async function editUserService({ id, first_name, last_name, email, nic_no, phone
         nic_no: afterUser.nic_no,
         phone_no: afterUser.phone_no,
       },
+      password_changed: Boolean(passwordHash),
     },
   });
   return afterUser;
