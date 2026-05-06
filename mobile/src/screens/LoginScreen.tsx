@@ -56,7 +56,7 @@ export default function LoginScreen() {
             <View style={styles.logoCircle}>
               <Ionicons name="flash" size={36} color="#fff" />
             </View>
-            <Text style={styles.brandName}>MotionRep</Text>
+            <Text style={styles.brandName}>Rep Route</Text>
             <Text style={styles.brandTagline}>Field Sales Platform</Text>
           </View>
 

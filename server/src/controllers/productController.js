@@ -40,6 +40,7 @@ exports.deleteProduct = async (req, res) => {
     await productService.deleteProduct(id, user_id);
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {
+    console.error('deleteProduct error:', error);
     res.status(400).json({ error: error.message });
   }
 };
@@ -273,7 +274,14 @@ exports.getSalesRepresentativesWithStats = async (req, res) => {
     const representatives = await shopService.getSalesRepresentativesWithStats();
     res.json({ representatives });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    console.error('getSalesRepresentativesWithStats error:', error);
+    // In production keep the original behavior; during development always return 500 and include stack
+    const status = (process.env.NODE_ENV === 'production')
+      ? (error && (error.code || error.sqlState) ? 500 : 400)
+      : 500;
+    const payload = { error: error.message };
+    if (process.env.NODE_ENV !== 'production' && error && error.stack) payload.stack = error.stack;
+    res.status(status).json(payload);
   }
 };
 

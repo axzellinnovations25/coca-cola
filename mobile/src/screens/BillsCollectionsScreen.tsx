@@ -25,6 +25,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import {
+  getSavedIosBlePrinter,
+  printReceiptLinesWithIosBlePrinter,
+  saveIosBlePrinter,
+  scanIosBlePrinters,
+} from '../services/iosBlePrinter';
 
 interface Bill {
   id: string;
@@ -238,6 +244,7 @@ export default function BillsCollectionsScreen() {
   const [showPrinterPicker, setShowPrinterPicker] = useState(false);
   const [pairedPrinters, setPairedPrinters] = useState<BluetoothPrinterDevice[]>([]);
   const [selectedPrinterMac, setSelectedPrinterMac] = useState('');
+  const [selectedIosPrinterName, setSelectedIosPrinterName] = useState('');
   const [printStatus, setPrintStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
     type: null,
     message: '',
@@ -277,6 +284,14 @@ export default function BillsCollectionsScreen() {
           if (savedMac) setSelectedPrinterMac(savedMac);
         })
         .catch(() => {});
+      getSavedIosBlePrinter()
+        .then((printer) => {
+          if (printer) {
+            setSelectedPrinterMac(printer.macAddress);
+            setSelectedIosPrinterName(printer.deviceName);
+          }
+        })
+        .catch(() => {});
     }, [fetchBills]),
   );
 
@@ -301,7 +316,7 @@ export default function BillsCollectionsScreen() {
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
     setSelectedShopName(shopName ?? '');
-    setPaymentAmount(bill.outstanding.toFixed(2));
+    setPaymentAmount('');
     setPaymentNotes('');
     setShowNotesInput(false);
     setPaymentError('');
@@ -321,8 +336,9 @@ export default function BillsCollectionsScreen() {
       const items = response.order?.items || [];
       setReturnItems(items);
       const initialQuantities: Record<string, number> = {};
-      items.forEach((item: OrderItem) => {
-        initialQuantities[item.product_id] = 0;
+      items.forEach((item: OrderItem, index: number) => {
+        const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+        initialQuantities[lineKey] = 0;
       });
       setReturnQuantities(initialQuantities);
       setShowReturnModal(true);
@@ -382,9 +398,15 @@ export default function BillsCollectionsScreen() {
 
   const submitReturn = async () => {
     if (!returnOrderId) return;
-    const itemsToReturn = Object.entries(returnQuantities)
-      .filter(([, qty]) => qty > 0)
-      .map(([product_id, quantity]) => ({ product_id, quantity }));
+    const productQtyMap: Record<string, number> = {};
+    returnItems.forEach((item: OrderItem, index: number) => {
+      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+      const qty = returnQuantities[lineKey] ?? 0;
+      if (qty > 0) {
+        productQtyMap[item.product_id] = (productQtyMap[item.product_id] ?? 0) + qty;
+      }
+    });
+    const itemsToReturn = Object.entries(productQtyMap).map(([product_id, quantity]) => ({ product_id, quantity }));
 
     if (itemsToReturn.length === 0) {
       setReturnError('Select at least one item to return.');
@@ -472,7 +494,7 @@ export default function BillsCollectionsScreen() {
 
   const requestBluetoothPermissions = async () => {
     if (Platform.OS !== 'android') {
-      throw new Error('Bluetooth printing is supported on Android only in this app.');
+      return true;
     }
     if (Platform.Version >= 31) {
       const results = await PermissionsAndroid.requestMultiple([
@@ -503,12 +525,22 @@ export default function BillsCollectionsScreen() {
   };
 
   const loadPairedPrinters = async () => {
+    if (Platform.OS === 'ios') {
+      const savedPrinter = await getSavedIosBlePrinter();
+      if (savedPrinter) {
+        setSelectedPrinterMac(savedPrinter.macAddress);
+        setSelectedIosPrinterName(savedPrinter.deviceName);
+      }
+      const devices = await scanIosBlePrinters(BLUETOOTH_SCAN_TIMEOUT_MS);
+      setPairedPrinters(devices);
+      return devices;
+    }
     if (
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function' ||
       typeof ThermalPrinterModule.printBluetooth !== 'function'
     ) {
-      throw new Error('Bluetooth printer module is unavailable. Use an Android dev/EAS build (not Expo Go).');
+      throw new Error('Bluetooth printer module is unavailable in this build.');
     }
     const granted = await requestBluetoothPermissions();
     if (!granted) throw new Error('Bluetooth permission denied.');
@@ -529,7 +561,9 @@ export default function BillsCollectionsScreen() {
       if (!devices.length) {
         setPrintStatus({
           type: 'error',
-          message: 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+          message: Platform.OS === 'ios'
+            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
+            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
         });
       }
     } catch (err: any) {
@@ -547,7 +581,12 @@ export default function BillsCollectionsScreen() {
   };
 
   const choosePrinter = async (printer: BluetoothPrinterDevice) => {
-    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    if (Platform.OS === 'ios') {
+      await saveIosBlePrinter(printer);
+      setSelectedIosPrinterName(printer.deviceName);
+    } else {
+      await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
+    }
     setSelectedPrinterMac(printer.macAddress);
     setShowPrinterPicker(false);
     setPrintStatus({
@@ -652,7 +691,11 @@ export default function BillsCollectionsScreen() {
       setPrintStatus({ type: null, message: '' });
       const devices = await loadPairedPrinters();
       if (!devices.length) {
-        throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
+        throw new Error(
+          Platform.OS === 'ios'
+            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
+            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+        );
       }
       const macAddress = await resolveBluetoothMacAddress(devices);
       if (!macAddress) {
@@ -667,7 +710,10 @@ export default function BillsCollectionsScreen() {
       const selectedDevice = devices.find((printer) => printer.macAddress === macAddress) || null;
       const printerProfile = getBluetoothPrinterProfile(selectedDevice?.deviceName);
       const useCpcl = isLikelyCpclPrinter(selectedDevice?.deviceName) && hasNativeBluetoothRawPrint();
-      if (useCpcl) {
+      if (Platform.OS === 'ios') {
+        const lines = buildPaymentPrintableLines(printerProfile.printerNbrCharactersPerLine);
+        await printReceiptLinesWithIosBlePrinter(macAddress, lines);
+      } else if (useCpcl) {
         const payload = buildPaymentCpclPayload(Math.min(CPCL_RENDER_LINE_WIDTH, printerProfile.printerNbrCharactersPerLine));
         await (ThermalPrinterModule as any).printBluetoothRaw({ macAddress, payload });
       } else {
@@ -676,7 +722,7 @@ export default function BillsCollectionsScreen() {
       }
       setPrintStatus({
         type: 'success',
-        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
+        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${Platform.OS === 'ios' ? ' (BLE)' : useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
       });
     } catch (err: any) {
       const errorMessage = err?.message || 'Failed to print payment receipt.';
@@ -1017,18 +1063,25 @@ export default function BillsCollectionsScreen() {
                   {printStatus.message}
                 </Text>
               ) : null}
-              <Text style={styles.modalLabel}>Printer: {selectedPrinterMac || 'Not selected'}</Text>
+              <Text style={styles.modalLabel}>
+                Printer:{' '}
+                {Platform.OS === 'ios'
+                  ? selectedIosPrinterName || 'Not selected'
+                  : selectedPrinterMac || 'Not selected'}
+              </Text>
 
               <View style={styles.modalActions}>
                 <TouchableOpacity style={styles.actionSecondary} onPress={closePaymentReceipt}>
                   <Text style={styles.actionText}>Close</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionSecondary, printing && styles.actionDisabled]}
+                  style={[styles.actionSecondary, (printing || loadingPrinters) && styles.actionDisabled]}
                   onPress={openPrinterPicker}
-                  disabled={printing}
+                  disabled={printing || loadingPrinters}
                 >
-                  <Text style={styles.actionText}>Choose Printer</Text>
+                  <Text style={styles.actionText}>
+                    Choose Printer
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.actionPrimary, (printing || loadingPrinters) && styles.actionDisabled]}
@@ -1066,7 +1119,9 @@ export default function BillsCollectionsScreen() {
             {loadingPrinters ? (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={styles.centerText}>Loading paired printers...</Text>
+                <Text style={styles.centerText}>
+                  {Platform.OS === 'ios' ? 'Scanning Bluetooth printers...' : 'Loading paired printers...'}
+                </Text>
               </View>
             ) : pairedPrinters.length > 0 ? (
               <FlatList
@@ -1090,7 +1145,11 @@ export default function BillsCollectionsScreen() {
                 )}
               />
             ) : (
-              <Text style={styles.emptyText}>No paired Bluetooth printers found.</Text>
+              <Text style={styles.emptyText}>
+                {Platform.OS === 'ios'
+                  ? 'No BLE printers found.'
+                  : 'No paired Bluetooth printers found.'}
+              </Text>
             )}
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -1126,10 +1185,13 @@ export default function BillsCollectionsScreen() {
             <Text style={styles.modalTitle}>Return Products</Text>
             {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
             <View style={styles.returnList}>
-              {returnItems.map((item) => (
-                <View key={item.product_id} style={styles.returnRow}>
+              {returnItems.map((item, index) => (
+                <View key={`${item.product_id}-${index}`} style={styles.returnRow}>
                   <View style={styles.returnText}>
-                    <Text style={styles.returnTitle}>{item.name}</Text>
+                    <View style={styles.returnTitleRow}>
+                      <Text style={styles.returnTitle}>{item.name}</Text>
+                      {Number(item.unit_price) === 0 ? <Text style={styles.freeTag}>FREE</Text> : null}
+                    </View>
                     <Text style={styles.returnMeta}>Ordered: {item.quantity}</Text>
                   </View>
                   <TextInput
@@ -1137,10 +1199,15 @@ export default function BillsCollectionsScreen() {
                     placeholderTextColor={colors.textMuted}
                     style={styles.returnInput}
                     keyboardType="numeric"
-                    value={String(returnQuantities[item.product_id] ?? 0)}
+                    value={(() => {
+                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+                      const qty = returnQuantities[lineKey] ?? 0;
+                      return qty > 0 ? String(qty) : '';
+                    })()}
                     onChangeText={(value) => {
                       const qty = Number(value || 0);
-                      setReturnQuantities((prev) => ({ ...prev, [item.product_id]: qty }));
+                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
+                      setReturnQuantities((prev) => ({ ...prev, [lineKey]: qty }));
                     }}
                   />
                 </View>
@@ -1601,9 +1668,25 @@ const makeStyles = (colors: ThemeColors) =>
   returnText: {
     flex: 1,
   },
+  returnTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
   returnTitle: {
     color: colors.text,
     fontWeight: '600',
+  },
+  freeTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: colors.success,
+    color: colors.background,
+    fontWeight: '700',
+    fontSize: 12,
+    overflow: 'hidden',
   },
   returnMeta: {
     color: colors.textMuted,
