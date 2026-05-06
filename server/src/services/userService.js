@@ -449,9 +449,9 @@ module.exports = {
   forgotPasswordService,
   resetPasswordService,
   validateResetTokenService,
+  getLogsService,
+  loginService,
+  listUsersService,
+  editUserService,
+  deleteUserService,
 };
-module.exports.getLogsService = getLogsService;
-module.exports.loginService = loginService;
-module.exports.listUsersService = listUsersService;
-module.exports.editUserService = editUserService;
-module.exports.deleteUserService = deleteUserService; 

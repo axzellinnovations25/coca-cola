@@ -37,11 +37,15 @@ interface OrderDetails {
   shop_id: string;
   sales_rep_id: string;
   total: number;
+  net_due?: number;
   status: string;
   notes?: string;
   created_at: string;
   collected: number;
   outstanding: number;
+  refund_due?: number;
+  out_of_date_value?: number;
+  out_of_date_credit?: number;
   shop: {
     name: string;
     address: string;
@@ -56,6 +60,8 @@ interface OrderDetails {
     product_id: string;
     name: string;
     quantity: number;
+    out_of_date_qty?: number;
+    remaining_qty?: number;
     unit_price: number;
     total: number;
   }>;
@@ -66,6 +72,19 @@ interface Payment {
   amount: number;
   notes?: string;
   created_at: string;
+}
+
+interface OutOfDateHistory {
+  id: string;
+  created_at: string;
+  notes?: string;
+  out_of_date_value: number;
+  out_of_date_credit: number;
+  admin?: {
+    id: string;
+    first_name?: string;
+    last_name?: string;
+  };
 }
 
 interface Product {
@@ -89,6 +108,16 @@ export default function OrderManagement() {
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [outOfDateHistory, setOutOfDateHistory] = useState<OutOfDateHistory[]>([]);
+  const [loadingOutOfDateHistory, setLoadingOutOfDateHistory] = useState(false);
+  const [outOfDateQty, setOutOfDateQty] = useState<Record<string, number>>({});
+  const [outOfDateNotes, setOutOfDateNotes] = useState('');
+  const [markingOutOfDate, setMarkingOutOfDate] = useState(false);
+  const [outOfDateError, setOutOfDateError] = useState('');
+  const [collectionAmount, setCollectionAmount] = useState('');
+  const [collectionNotes, setCollectionNotes] = useState('');
+  const [recordingCollection, setRecordingCollection] = useState(false);
+  const [collectionError, setCollectionError] = useState('');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [smsStatus, setSmsStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [lastApprovedOrderId, setLastApprovedOrderId] = useState<string | null>(null);
@@ -379,11 +408,24 @@ export default function OrderManagement() {
     try {
       setLoadingOrderDetails(true);
       setLoadingPayments(true);
+      setLoadingOutOfDateHistory(true);
+      setCollectionError('');
+      setCollectionAmount('');
+      setCollectionNotes('');
+      setOutOfDateError('');
+      setOutOfDateNotes('');
+      setOutOfDateQty({});
       
       // Fetch order details first
       const orderData = await apiFetch(`/api/marudham/orders/${orderId}`);
-      setSelectedOrder(orderData.order);
+      const order = orderData.order as OrderDetails;
+      setSelectedOrder(order);
       setShowOrderModal(true);
+      if (order?.items) {
+        const init: Record<string, number> = {};
+        for (const item of order.items) init[`${item.product_id}:${Number(item.unit_price)}`] = 0;
+        setOutOfDateQty(init);
+      }
       
       // Try to fetch payments (optional)
       try {
@@ -393,16 +435,137 @@ export default function OrderManagement() {
         console.warn('Payment history not available:', paymentError);
         setPayments([]);
       }
+
+      try {
+        const histData = await apiFetch(`/api/marudham/orders/${orderId}/out-of-date`);
+        setOutOfDateHistory(histData.history || []);
+      } catch (histError) {
+        console.warn('Out-of-date history not available:', histError);
+        setOutOfDateHistory([]);
+      }
     } catch (err: any) {
       console.error('Error fetching order details:', err);
       alert('Failed to load order details: ' + err.message);
       // Reset state on error
       setSelectedOrder(null);
       setPayments([]);
+      setOutOfDateHistory([]);
       setShowOrderModal(false);
     } finally {
       setLoadingOrderDetails(false);
       setLoadingPayments(false);
+      setLoadingOutOfDateHistory(false);
+    }
+  };
+
+  const handleAdminRecordCollection = async () => {
+    if (!selectedOrder) return;
+
+    setRecordingCollection(true);
+    setCollectionError('');
+
+    const amount = Number(collectionAmount);
+    if (!collectionAmount || Number.isNaN(amount) || amount <= 0) {
+      setCollectionError('Please enter a valid amount.');
+      setRecordingCollection(false);
+      return;
+    }
+    if (amount > Number(selectedOrder.outstanding || 0)) {
+      setCollectionError('Amount cannot exceed outstanding balance.');
+      setRecordingCollection(false);
+      return;
+    }
+
+    try {
+      const resp = await apiFetch(`/api/marudham/bills/${selectedOrder.id}/payment/admin`, {
+        method: 'POST',
+        body: JSON.stringify({ amount, notes: collectionNotes || undefined })
+      });
+
+      setSuccessMessage(resp.message || 'Collection recorded successfully');
+      setShowSuccessNotification(true);
+
+      // Refresh modal data
+      const [orderData, paymentsData] = await Promise.all([
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}`),
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}/payments`).catch(() => ({ payments: [] }))
+      ]);
+      setSelectedOrder(orderData.order);
+      setPayments(paymentsData.payments || []);
+
+      // Reset form
+      setCollectionAmount('');
+      setCollectionNotes('');
+
+      // Refresh list counts
+      triggerRefresh();
+
+      setTimeout(() => {
+        setShowSuccessNotification(false);
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err: any) {
+      setCollectionError(err.message || 'Failed to record collection.');
+    } finally {
+      setRecordingCollection(false);
+    }
+  };
+
+  const handleMarkOutOfDate = async () => {
+    if (!selectedOrder) return;
+
+    setMarkingOutOfDate(true);
+    setOutOfDateError('');
+
+    const items = Object.entries(outOfDateQty)
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([key, qty]) => {
+        const [product_id, unit_price] = key.split(':');
+        return { product_id, unit_price: Number(unit_price), qty: Number(qty) };
+      });
+
+    if (items.length === 0) {
+      setOutOfDateError('Please enter at least one qty to mark as out-of-date.');
+      setMarkingOutOfDate(false);
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`, {
+        method: 'POST',
+        body: JSON.stringify({
+          notes: outOfDateNotes || undefined,
+          items
+        })
+      });
+
+      const [orderData, paymentsData, histData] = await Promise.all([
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}`),
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}/payments`).catch(() => ({ payments: [] })),
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`).catch(() => ({ history: [] }))
+      ]);
+      const order = orderData.order as OrderDetails;
+      setSelectedOrder(order);
+      setPayments(paymentsData.payments || []);
+      setOutOfDateHistory(histData.history || []);
+
+      const reset: Record<string, number> = {};
+      for (const item of order.items || []) reset[`${item.product_id}:${Number(item.unit_price)}`] = 0;
+      setOutOfDateQty(reset);
+      setOutOfDateNotes('');
+
+      setSuccessMessage('Out-of-date marked successfully');
+      setShowSuccessNotification(true);
+      triggerRefresh();
+
+      setTimeout(() => {
+        setShowSuccessNotification(false);
+        setSuccessMessage('');
+      }, 5000);
+    } catch (err: any) {
+      setOutOfDateError(err.message || 'Failed to mark out-of-date.');
+    } finally {
+      setMarkingOutOfDate(false);
     }
   };
 
@@ -1021,11 +1184,83 @@ export default function OrderManagement() {
                   </div>
                 </div>
 
+                {/* Mark Out-of-date (Admin) */}
+                {selectedOrder.status === 'approved' && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mark Out-of-date</p>
+                      <span className="text-xs text-gray-400">40% credit</span>
+                    </div>
+
+                    {outOfDateError && (
+                      <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        {outOfDateError}
+                      </div>
+                    )}
+
+                    <div className="space-y-2">
+                      {(selectedOrder.items || []).map((item, idx) => {
+                        const remainingQty = Number(item.remaining_qty ?? item.quantity);
+                        const alreadyQty = Number(item.out_of_date_qty || 0);
+                        const stateKey = `${item.product_id}:${Number(item.unit_price)}`;
+                        const value = outOfDateQty[stateKey] ?? 0;
+                        return (
+                          <div key={`${item.product_id}-${idx}`} className="flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
+                              <p className="text-xs text-gray-500">
+                                Unit: {Number(item.unit_price).toFixed(2)} LKR • Ordered: {item.quantity} • Out-of-date: {alreadyQty} • Remaining: {remainingQty}
+                              </p>
+                            </div>
+                            <div className="w-28">
+                              <input
+                                value={value === 0 ? '' : String(value)}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const next = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw)));
+                                  setOutOfDateQty(prev => ({ ...prev, [stateKey]: next }));
+                                }}
+                                inputMode="numeric"
+                                placeholder="Qty"
+                                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
+                      <input
+                        value={outOfDateNotes}
+                        onChange={(e) => setOutOfDateNotes(e.target.value)}
+                        placeholder="e.g. Expired items collected from shop"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                      />
+                    </div>
+
+                    <div className="flex justify-end mt-3">
+                      <button
+                        onClick={handleMarkOutOfDate}
+                        disabled={markingOutOfDate}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+                      >
+                        {markingOutOfDate ? 'Saving…' : 'Apply Out-of-date'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Financial Summary */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-blue-600 mb-1">Order Total</p>
                     <p className="text-lg font-bold text-blue-800">{Number(selectedOrder.total || 0).toFixed(2)} LKR</p>
+                  </div>
+                  <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-violet-600 mb-1">Out-of-date Credit</p>
+                    <p className="text-lg font-bold text-violet-800">{Number(selectedOrder.out_of_date_credit || 0).toFixed(2)} LKR</p>
                   </div>
                   <div className="bg-green-50 border border-green-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-green-600 mb-1">Total Paid</p>
@@ -1034,6 +1269,10 @@ export default function OrderManagement() {
                   <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-red-600 mb-1">Outstanding</p>
                     <p className="text-lg font-bold text-red-800">{Number(selectedOrder.outstanding || 0).toFixed(2)} LKR</p>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-amber-600 mb-1">Refund Due</p>
+                    <p className="text-lg font-bold text-amber-800">{Number(selectedOrder.refund_due || 0).toFixed(2)} LKR</p>
                   </div>
                 </div>
 
@@ -1060,6 +1299,83 @@ export default function OrderManagement() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Out-of-date History */}
+                {outOfDateHistory && outOfDateHistory.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Out-of-date History</p>
+                    <div className="rounded-xl border border-gray-200 overflow-hidden">
+                      <table className="min-w-full">
+                        <thead>
+                          <tr className="bg-gray-50 border-b border-gray-100">
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Value</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credit (40%)</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {outOfDateHistory.map((h) => (
+                            <tr key={h.id} className="hover:bg-gray-50/60">
+                              <td className="px-4 py-3 text-sm text-gray-700">{new Date(h.created_at).toLocaleDateString()}</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900">{Number(h.out_of_date_value).toFixed(2)} LKR</td>
+                              <td className="px-4 py-3 text-sm font-semibold text-violet-900">{Number(h.out_of_date_credit).toFixed(2)} LKR</td>
+                              <td className="px-4 py-3 text-sm text-gray-500">{h.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Record Collection (Admin) */}
+                {selectedOrder.status === 'approved' && Number(selectedOrder.outstanding || 0) > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Record Collection</p>
+                      <span className="text-xs text-gray-400">Admin</span>
+                    </div>
+
+                    {collectionError && (
+                      <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                        {collectionError}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="md:col-span-1">
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Amount (LKR)</label>
+                        <input
+                          value={collectionAmount}
+                          onChange={(e) => setCollectionAmount(e.target.value)}
+                          inputMode="decimal"
+                          placeholder={`Max ${Number(selectedOrder.outstanding || 0).toFixed(2)}`}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
+                        <input
+                          value={collectionNotes}
+                          onChange={(e) => setCollectionNotes(e.target.value)}
+                          placeholder="e.g. Cash received by admin"
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end mt-3">
+                      <button
+                        onClick={handleAdminRecordCollection}
+                        disabled={recordingCollection}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed rounded-lg transition-colors"
+                      >
+                        {recordingCollection ? 'Recording…' : 'Mark Collected'}
+                      </button>
                     </div>
                   </div>
                 )}

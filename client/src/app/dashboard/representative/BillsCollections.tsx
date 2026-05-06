@@ -10,6 +10,7 @@ interface Bill {
 }
 
 interface OrderItem {
+  order_item_id: string;
   product_id: string;
   name: string;
   unit_price: number;
@@ -115,7 +116,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
       setReturnItems(items);
       const initialQuantities: Record<string, number> = {};
       items.forEach((item: OrderItem) => {
-        initialQuantities[item.product_id] = 0;
+        initialQuantities[item.order_item_id] = 0;
       });
       setReturnQuantities(initialQuantities);
       setShowReturnModal(true);
@@ -589,7 +590,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
 
     const itemsToReturn = Object.entries(returnQuantities)
       .filter(([, qty]) => qty > 0)
-      .map(([product_id, quantity]) => ({ product_id, quantity }));
+      .map(([order_item_id, quantity]) => ({ order_item_id, quantity }));
 
     if (itemsToReturn.length === 0) {
       setReturnError('Select at least one item to return.');
@@ -1132,8 +1133,8 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {returnItems.map(item => (
-                      <tr key={item.product_id}>
+                    {returnItems.map((item, idx) => (
+                      <tr key={`${item.order_item_id}-${idx}`}>
                         <td className="px-4 py-3 text-sm text-gray-900">{item.name}</td>
                         <td className="px-4 py-3 text-sm text-gray-700">{item.quantity}</td>
                         <td className="px-4 py-3">
@@ -1141,12 +1142,12 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                             type="number"
                             min={0}
                             max={item.quantity}
-                            value={returnQuantities[item.product_id] ?? 0}
+                            value={returnQuantities[item.order_item_id] ?? 0}
                             onChange={(e) => {
                               const qty = Number(e.target.value);
                               setReturnQuantities(prev => ({
                                 ...prev,
-                                [item.product_id]: qty
+                                [item.order_item_id]: qty
                               }));
                             }}
                             className="w-24 px-2 py-1 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300 text-gray-900"

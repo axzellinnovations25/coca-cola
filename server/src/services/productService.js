@@ -259,14 +259,30 @@ async function listAssignedShops(sales_rep_id) {
   const result = await pool.query(`
     SELECT s.*,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric)
+          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+          - (COALESCE((
+              SELECT SUM(odi.line_total::numeric)
+              FROM out_of_date_items odi
+              JOIN out_of_date od ON od.id = odi.out_of_date_id
+              WHERE od.order_id = o.id
+            ), 0) * 0.4)
         WHEN o.status = 'pending' THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND (
+            (o2.total::numeric)
+            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
+            - (COALESCE((
+                SELECT SUM(odi.line_total::numeric)
+                FROM out_of_date_items odi
+                JOIN out_of_date od ON od.id = odi.out_of_date_id
+                WHERE od.order_id = o2.id
+              ), 0) * 0.4)
+          ) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -295,14 +311,30 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric)
+          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+          - (COALESCE((
+              SELECT SUM(odi.line_total::numeric)
+              FROM out_of_date_items odi
+              JOIN out_of_date od ON od.id = odi.out_of_date_id
+              WHERE od.order_id = o.id
+            ), 0) * 0.4)
         WHEN o.status = 'pending' THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
        WHERE o2.shop_id = s.id
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND (
+            (o2.total::numeric)
+            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
+            - (COALESCE((
+                SELECT SUM(odi.line_total::numeric)
+                FROM out_of_date_items odi
+                JOIN out_of_date od ON od.id = odi.out_of_date_id
+                WHERE od.order_id = o2.id
+              ), 0) * 0.4)
+          ) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -359,9 +391,9 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
 
     for (const item of items) {
       await client.query(
-        `INSERT INTO order_items (order_id, product_id, unit_price, quantity, total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [order.id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
+        `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [randomUUID(), order.id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
       );
     }
 
@@ -437,7 +469,14 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
   const shopRes = await pool.query(`
     SELECT max_bill_amount, max_active_bills,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+        WHEN o.status = 'approved' THEN (o.total::numeric)
+          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+          - (COALESCE((
+              SELECT SUM(odi.line_total::numeric)
+              FROM out_of_date_items odi
+              JOIN out_of_date od ON od.id = odi.out_of_date_id
+              WHERE od.order_id = o.id
+            ), 0) * 0.4)
         WHEN o.status = 'pending' AND o.id != $2 THEN o.total::numeric
         ELSE 0
       END), 0) as current_outstanding,
@@ -445,7 +484,16 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
        WHERE o2.shop_id = s.id
        AND o2.id != $2
        AND (
-         (o2.status = 'approved' AND ((o2.total::numeric) - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)) > 0)
+         (o2.status = 'approved' AND (
+            (o2.total::numeric)
+            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
+            - (COALESCE((
+                SELECT SUM(odi.line_total::numeric)
+                FROM out_of_date_items odi
+                JOIN out_of_date od ON od.id = odi.out_of_date_id
+                WHERE od.order_id = o2.id
+              ), 0) * 0.4)
+          ) > 0)
          OR o2.status = 'pending'
        )) as active_bills
     FROM shops s
@@ -514,13 +562,13 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
 
     await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
 
-    for (const item of normalizedItems) {
-      await client.query(
-        `INSERT INTO order_items (order_id, product_id, unit_price, quantity, total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [order_id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
-      );
-    }
+      for (const item of normalizedItems) {
+        await client.query(
+          `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [randomUUID(), order_id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
+        );
+      }
 
     await client.query('COMMIT');
 
@@ -671,13 +719,13 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
 
     await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
 
-    for (const item of normalizedItems) {
-      await client.query(
-        `INSERT INTO order_items (order_id, product_id, unit_price, quantity, total)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [order_id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
-      );
-    }
+      for (const item of normalizedItems) {
+        await client.query(
+          `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [randomUUID(), order_id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
+        );
+      }
 
     await client.query('COMMIT');
 
@@ -1005,7 +1053,13 @@ async function billsForRepresentative(sales_rep_id) {
   // Get all approved orders for these shops
   const ordersRes = await pool.query(`
     SELECT o.id, o.shop_id, o.created_at, o.total,
-      COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0) as collected
+      COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0) as collected,
+      COALESCE((
+        SELECT SUM(odi.line_total::numeric)
+        FROM out_of_date_items odi
+        JOIN out_of_date od ON od.id = odi.out_of_date_id
+        WHERE od.order_id = o.id
+      ), 0) as out_of_date_value
     FROM orders o
     WHERE o.shop_id = ANY($1::text[])
     AND o.status = 'approved'
@@ -1018,20 +1072,31 @@ async function billsForRepresentative(sales_rep_id) {
       shop_id: shop.id,
       shop_name: shop.name,
       total_outstanding: 0,
+      total_refund_due: 0,
       bills: []
     };
   }
   for (const order of ordersRes.rows) {
-    const outstanding = Number(order.total) - Number(order.collected);
+    const outOfDateValue = Number(order.out_of_date_value || 0);
+    const outOfDateCredit = outOfDateValue * 0.4;
+    const netDue = Number(order.total) - outOfDateCredit;
+    const balance = netDue - Number(order.collected);
+    const outstanding = balance > 0 ? balance : 0;
+    const refund_due = balance < 0 ? Math.abs(balance) : 0;
     if (!shopMap[order.shop_id]) continue;
     shopMap[order.shop_id].bills.push({
       id: order.id,
       created_at: order.created_at,
       total: Number(order.total),
       collected: Number(order.collected),
-      outstanding
+      out_of_date_value: outOfDateValue,
+      out_of_date_credit: outOfDateCredit,
+      net_due: netDue,
+      outstanding,
+      refund_due
     });
     shopMap[order.shop_id].total_outstanding += outstanding;
+    shopMap[order.shop_id].total_refund_due += refund_due;
   }
   // Return as array
   return Object.values(shopMap);
@@ -1054,7 +1119,19 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
   
   const paymentsRes = await pool.query('SELECT COALESCE(SUM(CAST(amount AS numeric)),0) as collected FROM payments WHERE order_id = $1', [order_id]);
   const collected = Number(paymentsRes.rows[0].collected);
-  const outstanding = total - collected;
+
+  const outOfDateRes = await pool.query(`
+    SELECT COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
+    FROM out_of_date_items odi
+    JOIN out_of_date od ON od.id = odi.out_of_date_id
+    WHERE od.order_id = $1
+  `, [order_id]);
+  const outOfDateValue = Number(outOfDateRes.rows[0]?.out_of_date_value || 0);
+  const outOfDateCredit = outOfDateValue * 0.4;
+  const netDue = total - outOfDateCredit;
+  const balance = netDue - collected;
+  const outstanding = balance > 0 ? balance : 0;
+  if (balance <= 0) throw new Error('No outstanding balance to collect for this order');
   
   if (Number(amount) > outstanding) throw new Error('Payment exceeds outstanding amount');
   
@@ -1146,6 +1223,168 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
   };
 }
 
+async function recordPaymentAsAdmin({ order_id, admin_id, amount, notes }) {
+  if (!admin_id) throw new Error('Admin not found');
+
+  const orderRes = await pool.query('SELECT id, sales_rep_id, status FROM orders WHERE id = $1', [order_id]);
+  if (orderRes.rows.length === 0) throw new Error('Order not found');
+  const order = orderRes.rows[0];
+  if (order.status !== 'approved') throw new Error('Only approved orders can be collected');
+
+  const payment = await recordPayment({
+    order_id,
+    sales_rep_id: order.sales_rep_id,
+    amount,
+    notes
+  });
+
+  await logPaymentAction({
+    payment_id: payment.id,
+    order_id,
+    sales_rep_id: order.sales_rep_id,
+    action: 'admin_record',
+    details: {
+      admin_id,
+      amount: Number(amount),
+      notes: notes || null
+    }
+  });
+
+  return payment;
+}
+
+async function createOutOfDate({ order_id, admin_id, notes, items }) {
+  if (!order_id) throw new Error('Order ID is required');
+  if (!admin_id) throw new Error('Admin not found');
+  if (!Array.isArray(items) || items.length === 0) throw new Error('Out-of-date items are required');
+
+  const normalizedItems = items.map(i => ({
+    product_id: i.product_id,
+    unit_price: Number(i.unit_price),
+    qty: Number(i.qty)
+  }));
+  if (normalizedItems.some(i => !i.product_id || !Number.isFinite(i.unit_price) || i.unit_price < 0 || !Number.isInteger(i.qty) || i.qty <= 0)) {
+    throw new Error('Invalid out-of-date items');
+  }
+
+  const orderRes = await pool.query('SELECT id, shop_id, status FROM orders WHERE id = $1', [order_id]);
+  if (orderRes.rows.length === 0) throw new Error('Order not found');
+  const order = orderRes.rows[0];
+  if (order.status !== 'approved') throw new Error('Only approved orders can be marked out-of-date');
+
+  // Load order items to validate quantities and prices
+  const orderItemsRes = await pool.query(
+    'SELECT product_id, quantity, unit_price FROM order_items WHERE order_id = $1',
+    [order_id]
+  );
+  const orderItemMap = new Map();
+  for (const row of orderItemsRes.rows) {
+    const productId = row.product_id;
+    const unitPrice = Number(row.unit_price);
+    const key = `${productId}:${unitPrice}`;
+    const existing = orderItemMap.get(key) || { quantity: 0, unit_price: unitPrice };
+    orderItemMap.set(key, { quantity: existing.quantity + Number(row.quantity), unit_price: unitPrice });
+  }
+
+  // Load already out-of-date qty per product
+  const alreadyRes = await pool.query(`
+    SELECT odi.product_id, odi.unit_price, COALESCE(SUM(odi.qty), 0) as qty
+    FROM out_of_date_items odi
+    JOIN out_of_date od ON od.id = odi.out_of_date_id
+    WHERE od.order_id = $1
+    GROUP BY odi.product_id, odi.unit_price
+  `, [order_id]);
+  const alreadyMap = new Map(alreadyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.qty)]));
+
+  for (const item of normalizedItems) {
+    const key = `${item.product_id}:${item.unit_price}`;
+    const orderItem = orderItemMap.get(key);
+    if (!orderItem) throw new Error('Invalid product/price line for this order');
+    const alreadyQty = alreadyMap.get(key) || 0;
+    const remaining = orderItem.quantity - alreadyQty;
+    if (item.qty > remaining) throw new Error('Out-of-date qty exceeds remaining order qty');
+  }
+
+  const outOfDateId = randomUUID();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      'INSERT INTO out_of_date (id, order_id, shop_id, admin_id, notes, created_at) VALUES ($1, $2, $3, $4, $5, now())',
+      [outOfDateId, order_id, order.shop_id, admin_id, notes || null]
+    );
+
+    let outOfDateValue = 0;
+    for (const item of normalizedItems) {
+      const key = `${item.product_id}:${item.unit_price}`;
+      const orderItem = orderItemMap.get(key);
+      const unitPrice = orderItem.unit_price;
+      const lineTotal = unitPrice * item.qty;
+      outOfDateValue += lineTotal;
+      await client.query(
+        'INSERT INTO out_of_date_items (id, out_of_date_id, product_id, qty, unit_price, line_total) VALUES ($1, $2, $3, $4, $5, $6)',
+        [randomUUID(), outOfDateId, item.product_id, item.qty, unitPrice, lineTotal]
+      );
+    }
+
+    await logOrderAction({
+      order_id,
+      sales_rep_id: null,
+      action: 'out_of_date',
+      details: {
+        admin_id,
+        notes: notes || null,
+        items: normalizedItems,
+        out_of_date_value: outOfDateValue,
+        out_of_date_credit: outOfDateValue * 0.4
+      }
+    });
+
+    await client.query('COMMIT');
+
+    return {
+      id: outOfDateId,
+      order_id,
+      shop_id: order.shop_id,
+      out_of_date_value: outOfDateValue,
+      out_of_date_credit: outOfDateValue * 0.4
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function getOrderOutOfDateHistory(order_id) {
+  const res = await pool.query(`
+    SELECT od.id, od.notes, od.created_at, od.admin_id,
+      u.first_name as admin_first_name, u.last_name as admin_last_name,
+      COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
+    FROM out_of_date od
+    LEFT JOIN out_of_date_items odi ON odi.out_of_date_id = od.id
+    LEFT JOIN users u ON u.id = od.admin_id
+    WHERE od.order_id = $1
+    GROUP BY od.id, u.first_name, u.last_name
+    ORDER BY od.created_at DESC
+  `, [order_id]);
+
+  return res.rows.map(r => ({
+    id: r.id,
+    notes: r.notes,
+    created_at: r.created_at,
+    admin: {
+      id: r.admin_id,
+      first_name: r.admin_first_name,
+      last_name: r.admin_last_name
+    },
+    out_of_date_value: Number(r.out_of_date_value),
+    out_of_date_credit: Number(r.out_of_date_value) * 0.4
+  }));
+}
+
 async function recordReturn({ order_id, sales_rep_id, items }) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('Return items are required');
@@ -1166,11 +1405,11 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
   }
 
   const normalizedItems = items.map(item => ({
-    product_id: item.product_id,
+    order_item_id: item.order_item_id,
     quantity: Number(item.quantity)
   }));
 
-  if (normalizedItems.some(item => !item.product_id || isNaN(item.quantity) || item.quantity <= 0)) {
+  if (normalizedItems.some(item => !item.order_item_id || isNaN(item.quantity) || item.quantity <= 0)) {
     throw new Error('Invalid return items');
   }
 
@@ -1179,19 +1418,20 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
     await client.query('BEGIN');
 
     const orderItemsRes = await client.query(
-      'SELECT product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1',
+      'SELECT id, product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1',
       [order_id]
     );
     const orderItemsMap = new Map();
     orderItemsRes.rows.forEach(item => {
-      orderItemsMap.set(item.product_id, {
+      orderItemsMap.set(item.id, {
+        product_id: item.product_id,
         unit_price: Number(item.unit_price),
         quantity: Number(item.quantity)
       });
     });
 
     for (const item of normalizedItems) {
-      const existing = orderItemsMap.get(item.product_id);
+      const existing = orderItemsMap.get(item.order_item_id);
       if (!existing) throw new Error('Return item not found in order');
       if (item.quantity > existing.quantity) {
         throw new Error('Return quantity exceeds ordered quantity');
@@ -1199,22 +1439,23 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
       const remainingQty = existing.quantity - item.quantity;
       if (remainingQty > 0) {
         await client.query(
-          'UPDATE order_items SET quantity = $1, total = $2 WHERE order_id = $3 AND product_id = $4',
-          [remainingQty, existing.unit_price * remainingQty, order_id, item.product_id]
+          'UPDATE order_items SET quantity = $1, total = $2 WHERE id = $3',
+          [remainingQty, existing.unit_price * remainingQty, item.order_item_id]
         );
       } else {
         await client.query(
-          'DELETE FROM order_items WHERE order_id = $1 AND product_id = $2',
-          [order_id, item.product_id]
+          'DELETE FROM order_items WHERE id = $1',
+          [item.order_item_id]
         );
       }
     }
 
     // Restore stock for returned items
     for (const item of normalizedItems) {
+      const existing = orderItemsMap.get(item.order_item_id);
       await client.query(
         'UPDATE products SET stock = stock + $1 WHERE id = $2',
-        [item.quantity, item.product_id]
+        [item.quantity, existing.product_id]
       );
     }
 
@@ -1487,12 +1728,21 @@ async function getOrderDetails(order_id) {
   
   // Get order items with product details
   const itemsRes = await pool.query(`
-    SELECT oi.product_id, oi.quantity, oi.unit_price, oi.total as item_total,
+    SELECT oi.id as order_item_id, oi.product_id, oi.quantity, oi.unit_price, oi.total as item_total,
            p.name as product_name
     FROM order_items oi
     LEFT JOIN products p ON oi.product_id = p.id
     WHERE oi.order_id = $1
   `, [order_id]);
+
+  const outOfDateQtyRes = await pool.query(`
+    SELECT odi.product_id, odi.unit_price, COALESCE(SUM(odi.qty), 0) as out_of_date_qty
+    FROM out_of_date_items odi
+    JOIN out_of_date od ON od.id = odi.out_of_date_id
+    WHERE od.order_id = $1
+    GROUP BY odi.product_id, odi.unit_price
+  `, [order_id]);
+  const outOfDateQtyMap = new Map(outOfDateQtyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.out_of_date_qty)]));
   
   // Get payment information
   const paymentsRes = await pool.query(`
@@ -1501,8 +1751,20 @@ async function getOrderDetails(order_id) {
     WHERE order_id = $1
   `, [order_id]);
   
+  const outOfDateValueRes = await pool.query(`
+    SELECT COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
+    FROM out_of_date_items odi
+    JOIN out_of_date od ON od.id = odi.out_of_date_id
+    WHERE od.order_id = $1
+  `, [order_id]);
+
   const collected = Number(paymentsRes.rows[0].collected);
-  const outstanding = Number(order.total) - collected;
+  const outOfDateValue = Number(outOfDateValueRes.rows[0]?.out_of_date_value || 0);
+  const outOfDateCredit = outOfDateValue * 0.4;
+  const netDue = Number(order.total) - outOfDateCredit;
+  const balance = netDue - collected;
+  const outstanding = balance > 0 ? balance : 0;
+  const refund_due = balance < 0 ? Math.abs(balance) : 0;
   
   return {
     id: order.id,
@@ -1513,7 +1775,11 @@ async function getOrderDetails(order_id) {
     notes: order.notes,
     created_at: order.created_at,
     collected: collected,
-    outstanding: outstanding,
+    out_of_date_value: outOfDateValue,
+    out_of_date_credit: outOfDateCredit,
+    net_due: netDue,
+    outstanding,
+    refund_due,
     shop: {
       name: order.shop_name,
       address: order.shop_address,
@@ -1525,10 +1791,13 @@ async function getOrderDetails(order_id) {
       email: order.sales_rep_email
     },
     items: itemsRes.rows.map(item => ({
+      order_item_id: item.order_item_id,
       product_id: item.product_id,
       name: item.product_name,
       quantity: Number(item.quantity),
       unit_price: Number(item.unit_price),
+      out_of_date_qty: outOfDateQtyMap.get(`${item.product_id}:${Number(item.unit_price)}`) || 0,
+      remaining_qty: Math.max(0, Number(item.quantity) - (outOfDateQtyMap.get(`${item.product_id}:${Number(item.unit_price)}`) || 0)),
       total: Number(item.item_total)
     }))
   };
@@ -1862,11 +2131,29 @@ async function getShopDetails(shop_id) {
   // Get outstanding amounts and active bills
   const outstandingRes = await pool.query(`
     SELECT 
-      COALESCE(SUM(CASE WHEN o.status = 'approved' THEN o.total::numeric - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o.id), 0) ELSE 0 END), 0) as current_outstanding,
+      COALESCE(SUM(CASE WHEN o.status = 'approved' THEN
+        (o.total::numeric)
+        - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o.id), 0)
+        - (COALESCE((
+            SELECT SUM(odi.line_total::numeric)
+            FROM out_of_date_items odi
+            JOIN out_of_date od ON od.id = odi.out_of_date_id
+            WHERE od.order_id = o.id
+          ), 0) * 0.4)
+      ELSE 0 END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2 
        WHERE o2.shop_id = $1 
        AND o2.status = 'approved'
-       AND (o2.total::numeric - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o2.id), 0)) > 0) as active_bills
+       AND (
+          (o2.total::numeric)
+          - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o2.id), 0)
+          - (COALESCE((
+              SELECT SUM(odi.line_total::numeric)
+              FROM out_of_date_items odi
+              JOIN out_of_date od ON od.id = odi.out_of_date_id
+              WHERE od.order_id = o2.id
+            ), 0) * 0.4)
+        ) > 0) as active_bills
     FROM orders o
     WHERE o.shop_id = $1
   `, [shop_id]);
@@ -2195,3 +2482,6 @@ module.exports.listExpiryLogs = listExpiryLogs;
 module.exports.recordPurchase = recordPurchase;
 module.exports.listPurchaseLogs = listPurchaseLogs;
 module.exports.getAdminCollections = getAdminCollections;
+module.exports.recordPaymentAsAdmin = recordPaymentAsAdmin;
+module.exports.createOutOfDate = createOutOfDate;
+module.exports.getOrderOutOfDateHistory = getOrderOutOfDateHistory;

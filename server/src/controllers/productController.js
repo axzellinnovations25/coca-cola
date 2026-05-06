@@ -234,6 +234,24 @@ exports.recordPayment = async (req, res) => {
   }
 };
 
+exports.recordPaymentAsAdmin = async (req, res) => {
+  try {
+    const order_id = req.params.id;
+    const admin_id = req.user && req.user.id;
+    const { amount, notes } = req.body;
+    const result = await shopService.recordPaymentAsAdmin({ order_id, admin_id, amount, notes });
+
+    res.json({
+      message: 'Collection recorded successfully',
+      payment_id: result.id,
+      sms_sent: result.sms_sent || false,
+      sms_error: result.sms_error || null
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
 exports.recordReturn = async (req, res) => {
   try {
     const order_id = req.params.id;
@@ -246,6 +264,29 @@ exports.recordReturn = async (req, res) => {
       order_id: result.id,
       total: result.total
     });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.createOutOfDate = async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const admin_id = req.user && req.user.id;
+    const { items, notes } = req.body;
+
+    const result = await shopService.createOutOfDate({ order_id, admin_id, notes, items });
+    res.json({ out_of_date: result });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.getOrderOutOfDateHistory = async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const history = await shopService.getOrderOutOfDateHistory(order_id);
+    res.json({ history });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

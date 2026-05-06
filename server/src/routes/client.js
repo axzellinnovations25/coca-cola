@@ -85,6 +85,8 @@ router.get('/orders/:order_id/payments', authenticateJWT, requireAdminOrSuperadm
 router.put('/orders/:order_id/approve', authenticateJWT, requireAdminOrSuperadmin, productController.approveOrder);
 router.put('/orders/:order_id/reject', authenticateJWT, requireAdminOrSuperadmin, productController.rejectOrder);
 router.put('/orders/:order_id/admin', authenticateJWT, requireAdminOrSuperadmin, productController.updateOrderAsAdmin);
+router.post('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.createOutOfDate);
+router.get('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderOutOfDateHistory);
 
 // Sales rep specific order details (must come after admin routes)
 router.get('/orders/:order_id/details', authenticateJWT, requireSalesRep, productController.getOrderDetailsForSalesRep);
@@ -106,6 +108,7 @@ router.post('/payments/:payment_id/send-notification', authenticateJWT, requireS
 
 router.get('/bills/representative', authenticateJWT, requireSalesRep, productController.billsRepresentative);
 router.post('/bills/:id/payment', authenticateJWT, requireSalesRep, productController.recordPayment);
+router.post('/bills/:id/payment/admin', authenticateJWT, requireAdminOrSuperadmin, productController.recordPaymentAsAdmin);
 router.post('/bills/:id/return', authenticateJWT, requireSalesRep, productController.recordReturn);
 
 // Representative collections routes
