@@ -132,12 +132,22 @@ const pickDefaultPrinter = (devices: BluetoothPrinterDevice[]) => {
   const preferred = devices.find((printer) => isLikelyCpclPrinter(printer.deviceName));
   return preferred || devices[0];
 };
-const CPCL_RENDER_LINE_WIDTH = 16;
-const CPCL_LEFT_MARGIN = 0;
+const CPCL_RENDER_LINE_WIDTH = 32;
+const CPCL_LEFT_MARGIN = 8;
+const CPCL_RIGHT_MARGIN = 20;
+const CPCL_DOTS_PER_MM = 8;
+const CPCL_CHAR_WIDTH = 12;
 const CPCL_FONT = 0;
-const CPCL_MAG_X = 2;
-const CPCL_MAG_Y = 2;
+const CPCL_MAG_X = 1;
+const CPCL_MAG_Y = 1;
 const CPCL_BASE_LINE_HEIGHT = 30;
+const CPCL_PRINT_TONE = 60;
+const CPCL_PRINT_SPEED = 2;
+const CPCL_BOLD = 0;
+const getCpclLineWidth = (printerProfile: { printerWidthMM: number; printerNbrCharactersPerLine: number }) => {
+  const targetWidth = printerProfile.printerWidthMM <= 58 ? 32 : CPCL_RENDER_LINE_WIDTH;
+  return Math.min(targetWidth, printerProfile.printerNbrCharactersPerLine);
+};
 const sanitizeCpclLine = (value: string) =>
   value
     .replace(/["']/g, '')
@@ -485,9 +495,9 @@ export default function CreateOrderScreen() {
     const itemCount = (receipt?.items || []).length;
 
     const totalWidth = Math.max(24, lineWidth);
-    const itemWidth = totalWidth >= 42 ? 20 : 14;
+    const itemWidth = totalWidth >= 42 ? 18 : 14;
     const qtyWidth = 4;
-    const unitWidth = 6;
+    const unitWidth = totalWidth >= 42 ? 8 : 6;
     const totalWidthCol = totalWidth - itemWidth - qtyWidth - unitWidth;
     const separator = '-'.repeat(totalWidth);
     const strongSeparator = '='.repeat(totalWidth);
@@ -552,21 +562,86 @@ export default function CreateOrderScreen() {
     return `${escposLines.join('\n')}\n`;
   };
 
-  const buildCpclReceiptPayload = (lineWidth: number = RECEIPT_LINE_WIDTH) => {
-    const lines = buildPrintableReceiptLines(lineWidth);
-
+  const buildCpclReceiptPayload = (
+    lineWidth: number = RECEIPT_LINE_WIDTH,
+    printerProfile: { printerWidthMM: number; printerNbrCharactersPerLine: number },
+  ) => {
+    const shopName = receipt?.shop?.name || 'N/A';
+    const shopPhone = receipt?.shop?.phone || '';
+    const itemCount = (receipt?.items || []).length;
+    const paperWidth = Math.floor(printerProfile.printerWidthMM * CPCL_DOTS_PER_MM);
+    const rightEdge = paperWidth - CPCL_RIGHT_MARGIN;
     const startY = 24;
     const lineHeight = CPCL_BASE_LINE_HEIGHT * CPCL_MAG_Y + 8;
-    const x = CPCL_LEFT_MARGIN;
-    const height = Math.max(260, startY + lines.length * lineHeight + 80);
-    const cpclLines = lines
-      .map((line, index) => ({
-        y: startY + index * lineHeight,
-        text: sanitizeCpclLine(escapeCpclText(line)),
-      }))
-      .filter((row) => row.text.trim().length > 0)
-      .map((row) => `TEXT ${CPCL_FONT} 0 ${x} ${row.y} ${row.text}`);
-    return `! 0 200 200 ${height} 1\r\nSETMAG ${CPCL_MAG_X} ${CPCL_MAG_Y}\r\n${cpclLines.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
+    const itemMaxChars = Math.max(14, Math.floor((rightEdge - CPCL_LEFT_MARGIN - 8) / CPCL_CHAR_WIDTH));
+    const commands: string[] = [];
+    let y = startY;
+
+    const text = (x: number, textY: number, value: string) => {
+      const clean = sanitizeCpclLine(escapeCpclText(value));
+      if (clean.trim()) commands.push(`TEXT ${CPCL_FONT} 0 ${Math.max(CPCL_LEFT_MARGIN, x)} ${textY} ${clean}`);
+    };
+    const textRight = (value: string, textY: number, edgeX = rightEdge) => {
+      const clean = sanitizeCpclLine(escapeCpclText(value));
+      const x = edgeX - clean.length * CPCL_CHAR_WIDTH;
+      text(x, textY, clean);
+    };
+    const rule = (ruleY: number) => {
+      commands.push(`LINE ${CPCL_LEFT_MARGIN} ${ruleY} ${rightEdge} ${ruleY} 1`);
+    };
+    const row = (label: string, value: string) => {
+      text(CPCL_LEFT_MARGIN, y, label);
+      textRight(value, y);
+      y += lineHeight;
+    };
+
+    text(CPCL_LEFT_MARGIN, y, RECEIPT_COMPANY_NAME);
+    y += lineHeight;
+    text(CPCL_LEFT_MARGIN, y, 'Sales Order Receipt');
+    y += lineHeight;
+    rule(y);
+    y += lineHeight;
+    row('Shop', shopName);
+    if (shopPhone) row('Phone', shopPhone);
+    row('Date', receiptDateInfo.dateText);
+    row('Time', receiptDateInfo.timeText);
+    row('Items', String(itemCount));
+    rule(y);
+    y += lineHeight;
+    text(CPCL_LEFT_MARGIN, y, 'ITEM DETAILS');
+    y += lineHeight;
+    rule(y);
+    y += lineHeight;
+    text(CPCL_LEFT_MARGIN, y, 'Item');
+    textRight('Total', y);
+    y += lineHeight;
+    rule(y);
+    y += lineHeight;
+
+    (receipt?.items || []).forEach((item: any, index: number) => {
+      const qty = Number(item.quantity || 0);
+      const freeQty = Number(item.free_quantity || 0);
+      const unit = Number(item.unit_price || 0);
+      const total = (unit * qty).toFixed(2);
+      const itemName = trimCell(`${index + 1}. ${item.name || 'Item'}`, itemMaxChars);
+      text(CPCL_LEFT_MARGIN, y, itemName);
+      y += lineHeight;
+      text(CPCL_LEFT_MARGIN, y, `  ${qty} x ${unit.toFixed(2)}`);
+      textRight(total, y);
+      y += lineHeight;
+      if (freeQty > 0) {
+        row('  Free Qty', String(freeQty));
+      }
+    });
+
+    rule(y);
+    y += lineHeight;
+    row('TOTAL AMOUNT (LKR)', receiptTotal.toFixed(2));
+    rule(y);
+    y += lineHeight;
+
+    const height = Math.max(260, y + 60);
+    return `! 0 200 200 ${height} 1\r\nTONE ${CPCL_PRINT_TONE}\r\nSPEED ${CPCL_PRINT_SPEED}\r\nSETBOLD ${CPCL_BOLD}\r\nSETMAG ${CPCL_MAG_X} ${CPCL_MAG_Y}\r\n${commands.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
   };
 
 
@@ -732,7 +807,7 @@ export default function CreateOrderScreen() {
         const lines = buildPrintableReceiptLines(printerProfile.printerNbrCharactersPerLine);
         await printReceiptLinesWithIosBlePrinter(macAddress, lines);
       } else if (useCpcl) {
-        const cpclPayload = buildCpclReceiptPayload(Math.min(CPCL_RENDER_LINE_WIDTH, printerProfile.printerNbrCharactersPerLine));
+        const cpclPayload = buildCpclReceiptPayload(getCpclLineWidth(printerProfile), printerProfile);
         await (ThermalPrinterModule as any).printBluetoothRaw({
           macAddress,
           payload: cpclPayload,
@@ -1581,6 +1656,9 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
     maxHeight: '92%',
   },
   receiptScroll: {
@@ -1636,12 +1714,13 @@ const makeStyles = (colors: ThemeColors) =>
   },
   receiptLabel: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     textTransform: 'uppercase',
     fontWeight: '700',
   },
   receiptValue: {
     color: colors.text,
+    fontSize: 13,
     fontWeight: '600',
     textAlign: 'right',
     flexShrink: 1,
@@ -1664,9 +1743,9 @@ const makeStyles = (colors: ThemeColors) =>
     borderBottomColor: colors.border,
   },
   receiptCell: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 11,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
+    fontSize: 12,
     color: colors.text,
   },
   receiptCellItem: {
@@ -1721,7 +1800,7 @@ const makeStyles = (colors: ThemeColors) =>
   receiptSignatureLabel: {
     textAlign: 'center',
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
   },
   receiptFooter: {
     marginTop: 8,
@@ -1730,7 +1809,7 @@ const makeStyles = (colors: ThemeColors) =>
   },
   receiptFooterText: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
   },
   confirmCard: {
     backgroundColor: colors.surface,
