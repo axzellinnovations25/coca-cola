@@ -43,6 +43,23 @@ interface OrderItem {
   total: number;
 }
 
+type ReturnLineItem = OrderItem & { order_item_id: string; _rowKey: string };
+
+const normalizeOrderItem = (raw: any): ReturnLineItem => {
+  const unitPrice = Number(raw?.unit_price ?? raw?.unitPrice ?? 0);
+  const quantity = Number(raw?.quantity ?? 0);
+  const total = Number(raw?.total ?? raw?.item_total ?? raw?.itemTotal ?? unitPrice * quantity);
+  return {
+    order_item_id: String(raw?.order_item_id ?? raw?.orderItemId ?? raw?.id ?? ''),
+    product_id: String(raw?.product_id ?? raw?.productId ?? ''),
+    name: String(raw?.name ?? raw?.product_name ?? raw?.productName ?? ''),
+    unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+    total: Number.isFinite(total) ? total : 0,
+    _rowKey: '',
+  };
+};
+
 interface ShopWithBills {
   shop_id: string;
   shop_name: string;
@@ -246,7 +263,7 @@ export default function BillsCollectionsScreen() {
   });
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnOrderId, setReturnOrderId] = useState<string | null>(null);
-  const [returnItems, setReturnItems] = useState<OrderItem[]>([]);
+  const [returnItems, setReturnItems] = useState<ReturnLineItem[]>([]);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnLoading, setReturnLoading] = useState(false);
   const [returnError, setReturnError] = useState('');
@@ -325,11 +342,15 @@ export default function BillsCollectionsScreen() {
     setReturnOrderId(bill.id);
     try {
       const response = await apiFetch(`/api/marudham/orders/${bill.id}/details`);
-      const items = response.order?.items || [];
-      setReturnItems(items);
+      const items = (response.order?.items || []).map(normalizeOrderItem) as ReturnLineItem[];
+      const lineItems: ReturnLineItem[] = items.map((item, index) => ({
+        ...item,
+        _rowKey: `${item.product_id}:${item.unit_price}:${index}`,
+      }));
+      setReturnItems(lineItems);
       const initialQuantities: Record<string, number> = {};
-      items.forEach((item: OrderItem) => {
-        initialQuantities[item.product_id] = 0;
+      lineItems.forEach((item) => {
+        initialQuantities[item._rowKey] = 0;
       });
       setReturnQuantities(initialQuantities);
       setShowReturnModal(true);
@@ -339,6 +360,11 @@ export default function BillsCollectionsScreen() {
       setReturnLoading(false);
     }
   };
+
+  const returnRowKeyToOrderItemId = useMemo(() => {
+    const entries = returnItems.map((item) => [item._rowKey, item.order_item_id] as const);
+    return Object.fromEntries(entries) as Record<string, string>;
+  }, [returnItems]);
 
   const submitPayment = async () => {
     if (!selectedBill) return;
@@ -391,7 +417,11 @@ export default function BillsCollectionsScreen() {
     if (!returnOrderId) return;
     const itemsToReturn = Object.entries(returnQuantities)
       .filter(([, qty]) => qty > 0)
-      .map(([product_id, quantity]) => ({ product_id, quantity }));
+      .map(([rowKey, quantity]) => ({
+        order_item_id: returnRowKeyToOrderItemId[rowKey],
+        quantity,
+      }))
+      .filter((item) => !!item.order_item_id);
 
     if (itemsToReturn.length === 0) {
       setReturnError('Select at least one item to return.');
@@ -1175,20 +1205,23 @@ export default function BillsCollectionsScreen() {
             {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
             <View style={styles.returnList}>
               {returnItems.map((item) => (
-                <View key={item.product_id} style={styles.returnRow}>
+                <View key={item._rowKey} style={styles.returnRow}>
                   <View style={styles.returnText}>
                     <Text style={styles.returnTitle}>{item.name}</Text>
-                    <Text style={styles.returnMeta}>Ordered: {item.quantity}</Text>
+                    <Text style={styles.returnMeta}>
+                      Ordered: {item.quantity} Â· Unit: {item.unit_price.toFixed(2)} LKR
+                    </Text>
                   </View>
                   <TextInput
                     placeholder="0"
                     placeholderTextColor={colors.textMuted}
                     style={styles.returnInput}
                     keyboardType="numeric"
-                    value={String(returnQuantities[item.product_id] ?? 0)}
+                    value={returnQuantities[item._rowKey] ? String(returnQuantities[item._rowKey]) : ''}
                     onChangeText={(value) => {
-                      const qty = Number(value || 0);
-                      setReturnQuantities((prev) => ({ ...prev, [item.product_id]: qty }));
+                      const trimmed = value.trim();
+                      const qty = trimmed === '' ? 0 : Number(trimmed);
+                      setReturnQuantities((prev) => ({ ...prev, [item._rowKey]: qty }));
                     }}
                   />
                 </View>

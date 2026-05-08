@@ -1,5 +1,11 @@
-import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from "@react-navigation/native";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,10 +18,10 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { apiFetch } from '../api/api';
-import { ThemeColors, useThemeColors } from '../theme/colors';
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { apiFetch } from "../api/api";
+import { ThemeColors, useThemeColors } from "../theme/colors";
 
 interface Order {
   id: string;
@@ -58,9 +64,9 @@ const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
 
 const parseDate = (value: string | number | Date | null | undefined) => {
-  if (value === null || value === undefined || value === '') return null;
+  if (value === null || value === undefined || value === "") return null;
   if (value instanceof Date) return value;
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     const ms = value < 1e12 ? value * 1000 : value;
     const d = new Date(ms);
     return Number.isNaN(d.getTime()) ? null : d;
@@ -73,24 +79,25 @@ const parseDate = (value: string | number | Date | null | undefined) => {
     const d = new Date(ms);
     if (!Number.isNaN(d.getTime())) return d;
   }
-  let normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
-  normalized = normalized.replace(/(\.\d{3})\d+/, '$1');
+  let normalized =
+    raw.includes(" ") && !raw.includes("T") ? raw.replace(" ", "T") : raw;
+  normalized = normalized.replace(/(\.\d{3})\d+/, "$1");
   if (/[+-]\d{2}$/.test(normalized)) {
     normalized = `${normalized}:00`;
   } else if (/[+-]\d{4}$/.test(normalized)) {
-    normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+    normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
   }
   let d = new Date(normalized);
   if (!Number.isNaN(d.getTime())) return d;
-  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(normalized)) {
+  if (!normalized.endsWith("Z") && !/[+-]\d{2}(:?\d{2})?$/.test(normalized)) {
     d = new Date(`${normalized}Z`);
     if (!Number.isNaN(d.getTime())) return d;
   }
-  const noFraction = normalized.replace(/\.\d+/, '');
+  const noFraction = normalized.replace(/\.\d+/, "");
   if (noFraction !== normalized) {
     d = new Date(noFraction);
     if (!Number.isNaN(d.getTime())) return d;
-    if (!noFraction.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(noFraction)) {
+    if (!noFraction.endsWith("Z") && !/[+-]\d{2}(:?\d{2})?$/.test(noFraction)) {
       d = new Date(`${noFraction}Z`);
       if (!Number.isNaN(d.getTime())) return d;
     }
@@ -112,26 +119,31 @@ const parseDate = (value: string | number | Date | null | undefined) => {
       const localDate = new Date(year, month, day, hour, minute, second, ms);
       return Number.isNaN(localDate.getTime()) ? null : localDate;
     }
-    if (tz === 'Z') {
+    if (tz === "Z") {
       return new Date(Date.UTC(year, month, day, hour, minute, second, ms));
     }
-    const sign = match[9] === '-' ? -1 : 1;
+    const sign = match[9] === "-" ? -1 : 1;
     const tzHour = Number(match[10] || 0);
     const tzMin = Number(match[11] || 0);
     const offsetMinutes = sign * (tzHour * 60 + tzMin);
-    const utcTime = Date.UTC(year, month, day, hour, minute, second, ms) - offsetMinutes * 60000;
+    const utcTime =
+      Date.UTC(year, month, day, hour, minute, second, ms) -
+      offsetMinutes * 60000;
     return new Date(utcTime);
   }
   return null;
 };
 
-const formatDate = (value: string | number | null | undefined, withTime = false) => {
+const formatDate = (
+  value: string | number | null | undefined,
+  withTime = false,
+) => {
   const d = parseDate(value);
-  if (!d) return '--';
+  if (!d) return "--";
   return withTime ? d.toLocaleString() : d.toLocaleDateString();
 };
 
-const statusOptions = ['all', 'pending', 'approved', 'rejected'];
+const statusOptions = ["all", "pending", "approved", "rejected"];
 
 export default function MyOrdersScreen() {
   const colors = useThemeColors();
@@ -139,33 +151,38 @@ export default function MyOrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [showPending, setShowPending] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<DetailedOrder | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<DetailedOrder | null>(
+    null,
+  );
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [sendingSMS, setSendingSMS] = useState(false);
-  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
-  const [messageStatus, setMessageStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({
+  const [messageStatus, setMessageStatus] = useState<{
+    type: "success" | "error" | null;
+    message: string;
+  }>({
     type: null,
-    message: '',
+    message: "",
   });
 
   // Edit order state
   const [editOrder, setEditOrder] = useState<DetailedOrder | null>(null);
   const [editItems, setEditItems] = useState<EditOrderItem[]>([]);
-  const [editNotes, setEditNotes] = useState('');
+  const [editNotes, setEditNotes] = useState("");
   const [editLoading, setEditLoading] = useState(false);
-  const [editError, setEditError] = useState('');
+  const [editError, setEditError] = useState("");
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
-  const [productsError, setProductsError] = useState('');
-  const [newProductId, setNewProductId] = useState('');
-  const [newProductQty, setNewProductQty] = useState('1');
+  const [productsError, setProductsError] = useState("");
+  const [newProductId, setNewProductId] = useState("");
+  const [newProductQty, setNewProductQty] = useState("1");
   const [showProductPicker, setShowProductPicker] = useState(false);
-  const [productSearch, setProductSearch] = useState('');
-  const [selectedEditProduct, setSelectedEditProduct] = useState<Product | null>(null);
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedEditProduct, setSelectedEditProduct] =
+    useState<Product | null>(null);
 
   const isMounted = useRef(true);
   const errorClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -179,10 +196,10 @@ export default function MyOrdersScreen() {
   const fetchOrders = useCallback(async () => {
     try {
       setLoading(true);
-      setError('');
+      setError("");
       const [ordersData, pendingData] = await Promise.all([
-        apiFetch('/api/marudham/orders'),
-        apiFetch('/api/marudham/orders/pending'),
+        apiFetch("/api/marudham/orders"),
+        apiFetch("/api/marudham/orders/pending"),
       ]);
       setOrders(ordersData.orders || []);
       setPendingOrders(pendingData.orders || []);
@@ -206,7 +223,8 @@ export default function MyOrdersScreen() {
         order.shop_name.toLowerCase().includes(q) ||
         order.status.toLowerCase().includes(q) ||
         String(order.total).includes(q);
-      const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+      const matchesStatus =
+        statusFilter === "all" || order.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [orders, search, statusFilter]);
@@ -218,9 +236,11 @@ export default function MyOrdersScreen() {
 
   const openOrder = async (order: Order) => {
     setLoadingDetails(true);
-    setMessageStatus({ type: null, message: '' });
+    setMessageStatus({ type: null, message: "" });
     try {
-      const response = await apiFetch(`/api/marudham/orders/${order.id}/details`);
+      const response = await apiFetch(
+        `/api/marudham/orders/${order.id}/details`,
+      );
       if (!isMounted.current) return;
       setSelectedOrder(response.order || order);
     } catch {
@@ -234,7 +254,7 @@ export default function MyOrdersScreen() {
 
   const loadProducts = async (force = false) => {
     if (!force && products.length > 0) return products;
-    const response = await apiFetch('/api/marudham/order-products');
+    const response = await apiFetch("/api/marudham/order-products");
     const loaded = (response.products || []).map((product: any) => ({
       id: product.id,
       name: product.name,
@@ -245,14 +265,14 @@ export default function MyOrdersScreen() {
   };
 
   const openProductPicker = async () => {
-    setProductSearch('');
-    setProductsError('');
+    setProductSearch("");
+    setProductsError("");
     setShowProductPicker(true);
     setProductsLoading(true);
     try {
       await loadProducts(true);
     } catch (err: any) {
-      setProductsError(err.message || 'Failed to load products.');
+      setProductsError(err.message || "Failed to load products.");
     } finally {
       setProductsLoading(false);
     }
@@ -260,7 +280,7 @@ export default function MyOrdersScreen() {
 
   const handleEditOrder = async (order: Order) => {
     setEditLoading(true);
-    setEditError('');
+    setEditError("");
     try {
       const [details] = await Promise.all([
         apiFetch(`/api/marudham/orders/${order.id}/details`),
@@ -268,15 +288,17 @@ export default function MyOrdersScreen() {
       ]);
       const loadedOrder = details.order || order;
       setEditOrder(loadedOrder);
-      setEditNotes(loadedOrder.notes || '');
+      setEditNotes(loadedOrder.notes || "");
       setEditItems(
         (loadedOrder.items || []).map((item: OrderItem, index: number) => ({
           ...item,
-          line_key: item.line_key || `${item.product_id}-${item.unit_price}-${index}-${Date.now()}`,
+          line_key:
+            item.line_key ||
+            `${item.product_id}-${item.unit_price}-${index}-${Date.now()}`,
         })),
       );
     } catch (err: any) {
-      setEditError(err.message || 'Failed to load order for editing.');
+      setEditError(err.message || "Failed to load order for editing.");
     } finally {
       setEditLoading(false);
     }
@@ -285,14 +307,14 @@ export default function MyOrdersScreen() {
   const saveEditOrder = async () => {
     if (!editOrder) return;
     if (!editItems.length) {
-      setEditError('Add at least one item.');
+      setEditError("Add at least one item.");
       return;
     }
     setEditLoading(true);
-    setEditError('');
+    setEditError("");
     try {
       await apiFetch(`/api/marudham/orders/${editOrder.id}`, {
-        method: 'PUT',
+        method: "PUT",
         body: JSON.stringify({
           notes: editNotes,
           items: editItems.map((item) => ({
@@ -304,12 +326,12 @@ export default function MyOrdersScreen() {
       });
       setEditOrder(null);
       setEditItems([]);
-      setEditNotes('');
-      setNewProductId('');
-      setNewProductQty('1');
+      setEditNotes("");
+      setNewProductId("");
+      setNewProductQty("1");
       fetchOrders();
     } catch (err: any) {
-      setEditError(err.message || 'Failed to update order.');
+      setEditError(err.message || "Failed to update order.");
     } finally {
       setEditLoading(false);
     }
@@ -317,12 +339,15 @@ export default function MyOrdersScreen() {
 
   const addEditItem = () => {
     const quantity = Number(newProductQty);
-    const product = selectedEditProduct || products.find((p) => p.id === newProductId);
+    const product =
+      selectedEditProduct || products.find((p) => p.id === newProductId);
     if (!product || !quantity || quantity <= 0) return;
 
     setEditItems((prev) => {
       const existing = prev.find(
-        (item) => item.product_id === product.id && item.unit_price === product.unit_price,
+        (item) =>
+          item.product_id === product.id &&
+          item.unit_price === product.unit_price,
       );
       if (existing) {
         return prev.map((item) =>
@@ -347,63 +372,55 @@ export default function MyOrdersScreen() {
         },
       ];
     });
-    setNewProductId('');
-    setNewProductQty('1');
+    setNewProductId("");
+    setNewProductQty("1");
     setSelectedEditProduct(null);
-    setProductSearch('');
+    setProductSearch("");
     setShowProductPicker(false);
   };
 
   const scheduleErrorClear = () => {
     if (errorClearTimeout.current) clearTimeout(errorClearTimeout.current);
     errorClearTimeout.current = setTimeout(() => {
-      setMessageStatus({ type: null, message: '' });
+      setMessageStatus({ type: null, message: "" });
     }, 4000);
   };
 
   const sendSMS = async () => {
     if (!selectedOrder) return;
     setSendingSMS(true);
-    setMessageStatus({ type: null, message: '' });
+    setMessageStatus({ type: null, message: "" });
     try {
-      const response = await apiFetch(`/api/marudham/orders/${selectedOrder.id}/send-sms`, {
-        method: 'POST',
-      });
+      const response = await apiFetch(
+        `/api/marudham/orders/${selectedOrder.id}/send-sms`,
+        {
+          method: "POST",
+        },
+      );
       if (response.success) {
-        setMessageStatus({ type: 'success', message: 'SMS sent successfully.' });
+        setMessageStatus({
+          type: "success",
+          message: "SMS sent successfully.",
+        });
       } else {
-        setMessageStatus({ type: 'error', message: response.error || 'Failed to send SMS' });
+        setMessageStatus({
+          type: "error",
+          message: response.error || "Failed to send SMS",
+        });
         scheduleErrorClear();
       }
     } catch (err: any) {
-      setMessageStatus({ type: 'error', message: err.message || 'Failed to send SMS' });
+      setMessageStatus({
+        type: "error",
+        message: err.message || "Failed to send SMS",
+      });
       scheduleErrorClear();
     } finally {
       setSendingSMS(false);
     }
   };
 
-  const sendWhatsApp = async () => {
-    if (!selectedOrder) return;
-    setSendingWhatsApp(true);
-    setMessageStatus({ type: null, message: '' });
-    try {
-      const response = await apiFetch(`/api/marudham/orders/${selectedOrder.id}/send-whatsapp`, {
-        method: 'POST',
-      });
-      if (response.success) {
-        setMessageStatus({ type: 'success', message: 'WhatsApp message sent successfully.' });
-      } else {
-        setMessageStatus({ type: 'error', message: response.error || 'Failed to send WhatsApp' });
-        scheduleErrorClear();
-      }
-    } catch (err: any) {
-      setMessageStatus({ type: 'error', message: err.message || 'Failed to send WhatsApp' });
-      scheduleErrorClear();
-    } finally {
-      setSendingWhatsApp(false);
-    }
-  };
+  // Note: Send WhatsApp functionality removed per UI requirement.
 
   if (loading) {
     return (
@@ -428,107 +445,146 @@ export default function MyOrdersScreen() {
 
   return (
     <View style={styles.container}>
-        <FlatList
-          data={filteredOrders}
-          keyExtractor={(item, index) => `${item.id ?? 'order'}-${index}`}
-          contentContainerStyle={styles.list}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          ListEmptyComponent={<Text style={styles.emptyText}>No orders found.</Text>}
-          ListHeaderComponent={
-            <View>
-              <LinearGradient
-                colors={[colors.gradientStart, colors.gradientEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.headerBanner}
-              >
-                <Text style={styles.title}>My Orders</Text>
-                <Text style={styles.subtitle}>Track order status and send receipts.</Text>
-              </LinearGradient>
-              <View style={styles.searchCard}>
-                <TextInput
-                  placeholder="Search by shop, status, or amount"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.input}
-                  value={search}
-                  onChangeText={setSearch}
-                />
+      <FlatList
+        data={filteredOrders}
+        keyExtractor={(item, index) => `${item.id ?? "order"}-${index}`}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No orders found.</Text>
+        }
+        ListHeaderComponent={
+          <View>
+            <LinearGradient
+              colors={[colors.gradientStart, colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.headerBanner}
+            >
+              <Text style={styles.title}>My Orders</Text>
+              <Text style={styles.subtitle}>
+                Track order status and send receipts.
+              </Text>
+            </LinearGradient>
+            <View style={styles.searchCard}>
+              <TextInput
+                placeholder="Search by shop, status, or amount"
+                placeholderTextColor={colors.textMuted}
+                style={styles.input}
+                value={search}
+                onChangeText={setSearch}
+              />
 
-                <View style={styles.filterRow}>
-                  {statusOptions.map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      style={[styles.filterPill, statusFilter === status && styles.filterPillActive]}
-                      onPress={() => setStatusFilter(status)}
+              <View style={styles.filterRow}>
+                {statusOptions.map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[
+                      styles.filterPill,
+                      statusFilter === status && styles.filterPillActive,
+                    ]}
+                    onPress={() => setStatusFilter(status)}
+                  >
+                    <Text
+                      style={[
+                        styles.filterText,
+                        statusFilter === status && styles.filterTextActive,
+                      ]}
                     >
-                      <Text style={[styles.filterText, statusFilter === status && styles.filterTextActive]}>
-                        {status === 'all' ? 'All' : status}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {pendingOrders.length > 0 && (
-                  <TouchableOpacity style={styles.pendingButton} onPress={() => setShowPending(!showPending)}>
-                    <Text style={styles.pendingButtonText}>
-                      {showPending ? 'Hide Pending' : 'Pending Orders'} ({pendingOrders.length})
+                      {status === "all" ? "All" : status}
                     </Text>
                   </TouchableOpacity>
-                )}
+                ))}
               </View>
 
-              {showPending && (
-                <View style={styles.pendingCard}>
-                  <Text style={styles.pendingTitle}>Pending Orders</Text>
-                  {pendingOrders.map((order) => (
-                    <View key={order.id} style={styles.listRow}>
-                      <View style={styles.listText}>
-                        <Text style={styles.listTitle}>{order.shop_name}</Text>
-                <Text style={styles.listCaption}>{formatDate(order.created_at)}</Text>
-                      </View>
-                      <View style={styles.listActions}>
-                        <TouchableOpacity style={styles.listActionButton} onPress={() => openOrder(order)}>
-                          <Text style={styles.listActionText}>View</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.listActionButtonAlt} onPress={() => handleEditOrder(order)}>
-                          <Text style={styles.listActionTextAlt}>Edit</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))}
-                </View>
+              {pendingOrders.length > 0 && (
+                <TouchableOpacity
+                  style={styles.pendingButton}
+                  onPress={() => setShowPending(!showPending)}
+                >
+                  <Text style={styles.pendingButtonText}>
+                    {showPending ? "Hide Pending" : "Pending Orders"} (
+                    {pendingOrders.length})
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
-          }
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <View style={styles.cardRow}>
-                <View style={styles.cardText}>
-                  <Text style={styles.cardTitle}>{item.shop_name}</Text>
-                <Text style={styles.cardSubtitle}>{formatDate(item.created_at)}</Text>
-                </View>
-                <Text style={styles.cardAmount}>{Number(item.total).toFixed(2)} LKR</Text>
-              </View>
-              <View style={styles.cardFooter}>
-                <Text style={styles.cardMeta}>{item.item_count} items</Text>
-                <Text style={styles.cardStatus}>{item.status}</Text>
-              </View>
-              <View style={styles.cardActions}>
-                <TouchableOpacity style={styles.cardActionButton} onPress={() => openOrder(item)}>
-                  <Text style={styles.cardActionText}>View</Text>
-                </TouchableOpacity>
-                {item.status === 'pending' && (
-                  <TouchableOpacity style={styles.cardActionButtonAlt} onPress={() => handleEditOrder(item)}>
-                    <Text style={styles.cardActionTextAlt}>Edit</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          )}
-        />
 
-      <Modal visible={!!selectedOrder} transparent animationType="slide" onRequestClose={() => setSelectedOrder(null)}>
+            {showPending && (
+              <View style={styles.pendingCard}>
+                <Text style={styles.pendingTitle}>Pending Orders</Text>
+                {pendingOrders.map((order) => (
+                  <View key={order.id} style={styles.listRow}>
+                    <View style={styles.listText}>
+                      <Text style={styles.listTitle}>{order.shop_name}</Text>
+                      <Text style={styles.listCaption}>
+                        {formatDate(order.created_at)}
+                      </Text>
+                    </View>
+                    <View style={styles.listActions}>
+                      <TouchableOpacity
+                        style={styles.listActionButton}
+                        onPress={() => openOrder(order)}
+                      >
+                        <Text style={styles.listActionText}>View</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.listActionButtonAlt}
+                        onPress={() => handleEditOrder(order)}
+                      >
+                        <Text style={styles.listActionTextAlt}>Edit</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.card}>
+            <View style={styles.cardRow}>
+              <View style={styles.cardText}>
+                <Text style={styles.cardTitle}>{item.shop_name}</Text>
+                <Text style={styles.cardSubtitle}>
+                  {formatDate(item.created_at)}
+                </Text>
+              </View>
+              <Text style={styles.cardAmount}>
+                {Number(item.total).toFixed(2)} LKR
+              </Text>
+            </View>
+            <View style={styles.cardFooter}>
+              <Text style={styles.cardMeta}>{item.item_count} items</Text>
+              <Text style={styles.cardStatus}>{item.status}</Text>
+            </View>
+            <View style={styles.cardActions}>
+              <TouchableOpacity
+                style={styles.cardActionButton}
+                onPress={() => openOrder(item)}
+              >
+                <Text style={styles.cardActionText}>View</Text>
+              </TouchableOpacity>
+              {item.status === "pending" && (
+                <TouchableOpacity
+                  style={styles.cardActionButtonAlt}
+                  onPress={() => handleEditOrder(item)}
+                >
+                  <Text style={styles.cardActionTextAlt}>Edit</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+      />
+
+      <Modal
+        visible={!!selectedOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedOrder(null)}
+      >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Order Details</Text>
@@ -536,28 +592,82 @@ export default function MyOrdersScreen() {
               <ActivityIndicator color={colors.accent} />
             ) : (
               <>
-                <Text style={styles.modalLabel}>Shop</Text>
-                <Text style={styles.modalValue}>{selectedOrder?.shop?.name || selectedOrder?.shop_name}</Text>
-                <Text style={styles.modalLabel}>Date</Text>
-                <Text style={styles.modalValue}>
-                  {selectedOrder ? formatDate(selectedOrder.created_at, true) : ''}
-                </Text>
-                <Text style={styles.modalLabel}>Total</Text>
-                <Text style={styles.modalValue}>{Number(selectedOrder?.total || 0).toFixed(2)} LKR</Text>
-                <Text style={styles.modalLabel}>Status</Text>
-                <Text style={styles.modalValue}>{selectedOrder?.status}</Text>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Shop</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.detailValue}>
+                      {selectedOrder?.shop?.name || selectedOrder?.shop_name}
+                    </Text>
+                    {selectedOrder?.shop?.address ? (
+                      <Text style={styles.modalSubValue}>
+                        {selectedOrder.shop.address}
+                      </Text>
+                    ) : null}
+                    {selectedOrder?.shop?.phone ? (
+                      <Text style={styles.modalSubValue}>
+                        Phone: {selectedOrder.shop.phone}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Date</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedOrder
+                      ? formatDate(selectedOrder.created_at, true)
+                      : ""}
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Total</Text>
+                  <Text style={styles.detailValue}>
+                    {Number(selectedOrder?.total || 0).toFixed(2)} LKR
+                  </Text>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={styles.detailValue}>
+                    {selectedOrder?.status}
+                  </Text>
+                </View>
 
                 {selectedOrder?.items?.length ? (
                   <>
                     <Text style={styles.modalLabel}>Items</Text>
                     {selectedOrder.items.map((item, index) => (
-                      <View key={`${item.product_id}-${item.unit_price}-${index}`} style={styles.itemRow}>
-                        <Text style={styles.itemName}>{item.name}</Text>
-                        <Text style={styles.itemMeta}>
-                          {item.quantity} x {formatCurrency(item.unit_price)} LKR
+                      <View
+                        key={`${item.product_id}-${item.unit_price}-${index}`}
+                        style={styles.itemRow}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.itemName}>{item.name}</Text>
+                          <Text style={styles.itemMeta}>
+                            {item.quantity} x{" "}
+                            {Number(item.unit_price) === 0
+                              ? "Free"
+                              : `${formatCurrency(item.unit_price)} LKR`}
+                          </Text>
+                        </View>
+                        <Text style={styles.itemTotal}>
+                          {Number(item.total) === 0
+                            ? "Free"
+                            : `${formatCurrency(item.total)} LKR`}
                         </Text>
                       </View>
                     ))}
+                    <View style={styles.modalTotalRow}>
+                      <Text
+                        style={[styles.modalLabel, { textTransform: "none" }]}
+                      >
+                        Grand Total
+                      </Text>
+                      <Text style={[styles.modalValue, { fontSize: 16 }]}>
+                        {Number(selectedOrder?.total || 0).toFixed(2)} LKR
+                      </Text>
+                    </View>
                   </>
                 ) : null}
 
@@ -565,7 +675,9 @@ export default function MyOrdersScreen() {
                   <Text
                     style={[
                       styles.message,
-                      messageStatus.type === 'success' ? styles.messageSuccess : styles.messageError,
+                      messageStatus.type === "success"
+                        ? styles.messageSuccess
+                        : styles.messageError,
                     ]}
                   >
                     {messageStatus.message}
@@ -574,20 +686,22 @@ export default function MyOrdersScreen() {
 
                 <View style={styles.modalActions}>
                   <TouchableOpacity
-                    style={[styles.actionButton, styles.actionSecondary]}
+                    style={[
+                      styles.actionButton,
+                      styles.actionSecondary,
+                      styles.modalActionButton,
+                    ]}
                     onPress={sendSMS}
-                    disabled={sendingSMS || sendingWhatsApp}
+                    disabled={sendingSMS}
                   >
-                    <Text style={styles.actionText}>{sendingSMS ? 'Sending...' : 'Send SMS'}</Text>
+                    <Text style={styles.actionText}>
+                      {sendingSMS ? "Sending..." : "Send SMS"}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.actionButton, styles.actionSecondary]}
-                    onPress={sendWhatsApp}
-                    disabled={sendingSMS || sendingWhatsApp}
+                    style={[styles.actionButton, styles.modalActionButton]}
+                    onPress={() => setSelectedOrder(null)}
                   >
-                    <Text style={styles.actionText}>{sendingWhatsApp ? 'Sending...' : 'Send WhatsApp'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionButton} onPress={() => setSelectedOrder(null)}>
                     <Text style={styles.actionTextOnAccent}>Close</Text>
                   </TouchableOpacity>
                 </View>
@@ -597,14 +711,21 @@ export default function MyOrdersScreen() {
         </View>
       </Modal>
 
-      <Modal visible={!!editOrder} transparent animationType="slide" onRequestClose={() => setEditOrder(null)}>
+      <Modal
+        visible={!!editOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setEditOrder(null)}
+      >
         <View style={styles.modalBackdrop}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={StyleSheet.absoluteFill} />
           </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
             <Text style={styles.editModalTitle}>Edit Pending Order</Text>
-            {editError ? <Text style={styles.errorText}>{editError}</Text> : null}
+            {editError ? (
+              <Text style={styles.errorText}>{editError}</Text>
+            ) : null}
             <Text style={styles.modalLabel}>Items</Text>
             <View style={styles.editItems}>
               {editItems.map((item) => (
@@ -612,7 +733,9 @@ export default function MyOrdersScreen() {
                   <View style={styles.editText}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={styles.itemMeta}>
-                      {formatCurrency(item.unit_price)} LKR
+                      {Number(item.unit_price) === 0
+                        ? "Free"
+                        : `${formatCurrency(item.unit_price)} LKR`}
                     </Text>
                   </View>
                   <TextInput
@@ -632,7 +755,11 @@ export default function MyOrdersScreen() {
                   />
                   <TouchableOpacity
                     style={styles.removeButton}
-                    onPress={() => setEditItems((prev) => prev.filter((i) => i.line_key !== item.line_key))}
+                    onPress={() =>
+                      setEditItems((prev) =>
+                        prev.filter((i) => i.line_key !== item.line_key),
+                      )
+                    }
                   >
                     <Text style={styles.removeText}>Remove</Text>
                   </TouchableOpacity>
@@ -646,8 +773,16 @@ export default function MyOrdersScreen() {
                 style={[styles.input, styles.addInput]}
                 onPress={openProductPicker}
               >
-                <Text style={selectedEditProduct ? styles.selectedText : styles.placeholderText}>
-                  {selectedEditProduct ? selectedEditProduct.name : 'Select product'}
+                <Text
+                  style={
+                    selectedEditProduct
+                      ? styles.selectedText
+                      : styles.placeholderText
+                  }
+                >
+                  {selectedEditProduct
+                    ? selectedEditProduct.name
+                    : "Select product"}
                 </Text>
               </TouchableOpacity>
               <TextInput
@@ -664,11 +799,20 @@ export default function MyOrdersScreen() {
             </View>
 
             <View style={styles.editModalActions}>
-              <TouchableOpacity style={[styles.actionSecondary, styles.editModalButton]} onPress={() => setEditOrder(null)}>
+              <TouchableOpacity
+                style={[styles.actionSecondary, styles.editModalButton]}
+                onPress={() => setEditOrder(null)}
+              >
                 <Text style={styles.editModalButtonText}>Close</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.actionPrimary, styles.editModalButton]} onPress={saveEditOrder} disabled={editLoading}>
-                <Text style={styles.editModalButtonText}>{editLoading ? 'Saving...' : 'Save Changes'}</Text>
+              <TouchableOpacity
+                style={[styles.actionPrimary, styles.editModalButton]}
+                onPress={saveEditOrder}
+                disabled={editLoading}
+              >
+                <Text style={styles.editModalButtonText}>
+                  {editLoading ? "Saving..." : "Save Changes"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -694,7 +838,10 @@ export default function MyOrdersScreen() {
                 ) : productsError ? (
                   <View style={styles.centerInline}>
                     <Text style={styles.errorText}>{productsError}</Text>
-                    <TouchableOpacity style={styles.retry} onPress={openProductPicker}>
+                    <TouchableOpacity
+                      style={styles.retry}
+                      onPress={openProductPicker}
+                    >
                       <Text style={styles.retryText}>Try again</Text>
                     </TouchableOpacity>
                   </View>
@@ -703,7 +850,9 @@ export default function MyOrdersScreen() {
                 ) : (
                   <FlatList
                     data={filteredProducts}
-                    keyExtractor={(item, index) => `${item.id ?? 'product'}-${index}`}
+                    keyExtractor={(item, index) =>
+                      `${item.id ?? "product"}-${index}`
+                    }
                     style={styles.productList}
                     keyboardShouldPersistTaps="handled"
                     renderItem={({ item }) => (
@@ -712,17 +861,22 @@ export default function MyOrdersScreen() {
                         onPress={() => {
                           setSelectedEditProduct(item);
                           setNewProductId(item.id);
-                          setProductSearch('');
+                          setProductSearch("");
                           setShowProductPicker(false);
                         }}
                       >
                         <Text style={styles.dropdownTitle}>{item.name}</Text>
-                        <Text style={styles.dropdownSubtitle}>{formatCurrency(item.unit_price)} LKR</Text>
+                        <Text style={styles.dropdownSubtitle}>
+                          {formatCurrency(item.unit_price)} LKR
+                        </Text>
                       </TouchableOpacity>
                     )}
                   />
                 )}
-                <TouchableOpacity style={styles.actionSecondary} onPress={() => setShowProductPicker(false)}>
+                <TouchableOpacity
+                  style={styles.actionSecondary}
+                  onPress={() => setShowProductPicker(false)}
+                >
                   <Text style={styles.actionText}>Close</Text>
                 </TouchableOpacity>
               </View>
@@ -730,479 +884,525 @@ export default function MyOrdersScreen() {
           )}
         </View>
       </Modal>
-      </View>
+    </View>
   );
 }
 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  center: {
-    flex: 1,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  centerInline: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
-  },
-  centerText: {
-    marginTop: 12,
-    color: colors.textSubtle,
-    fontWeight: '600',
-  },
-  errorTitle: {
-    color: colors.danger,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  errorText: {
-    color: colors.textSubtle,
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  retry: {
-    marginTop: 16,
-    backgroundColor: colors.accent,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  retryText: {
-    color: colors.background,
-    fontWeight: '700',
-  },
-  headerBanner: {
-    padding: 20,
-    paddingBottom: 14,
-    gap: 6,
-    borderRadius: 0,
-  },
-  searchCard: {
-    backgroundColor: colors.surface,
-    padding: 16,
-    gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
-  },
-  subtitle: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 14,
-  },
-  input: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    color: colors.text,
-    fontSize: 15,
-  },
-  placeholderText: {
-    color: colors.textMuted,
-  },
-  selectedText: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  filterRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  filterPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceMuted,
-  },
-  filterPillActive: {
-    backgroundColor: colors.accent,
-  },
-  filterText: {
-    color: colors.textSubtle,
-    textTransform: 'capitalize',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  filterTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  pendingButton: {
-    backgroundColor: colors.warningSurface,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    alignItems: 'center',
-  },
-  pendingButtonText: {
-    color: colors.warning,
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  pendingCard: {
-    marginHorizontal: 20,
-    marginTop: 4,
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 16,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  pendingTitle: {
-    color: colors.warning,
-    fontWeight: '700',
-  },
-  pendingBadge: {
-    color: colors.warning,
-    textTransform: 'capitalize',
-    fontWeight: '700',
-  },
-  listActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  listActionButton: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  listActionButtonAlt: {
-    backgroundColor: colors.warningSurface,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  listActionText: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  listActionTextAlt: {
-    color: colors.warning,
-    fontWeight: '700',
-  },
-  list: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 20,
-    gap: 12,
-  },
-  productList: {
-    maxHeight: 260,
-  },
-  dropdownItem: {
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  dropdownTitle: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  dropdownSubtitle: {
-    color: colors.textMuted,
-    marginTop: 4,
-  },
-  emptyText: {
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 40,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 18,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  cardText: {
-    flex: 1,
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  cardSubtitle: {
-    color: colors.textMuted,
-    marginTop: 4,
-  },
-  cardAmount: {
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  cardActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  cardActionButton: {
-    flex: 1,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
-    paddingVertical: 9,
-    alignItems: 'center',
-  },
-  cardActionButtonAlt: {
-    flex: 1,
-    backgroundColor: colors.warningSurface,
-    borderRadius: 12,
-    paddingVertical: 9,
-    alignItems: 'center',
-  },
-  cardActionText: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  cardActionTextAlt: {
-    color: colors.warning,
-    fontWeight: '700',
-  },
-  cardMeta: {
-    color: colors.textMuted,
-  },
-  cardStatus: {
-    color: colors.textSubtle,
-    textTransform: 'capitalize',
-    fontWeight: '700',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(12, 19, 40, 0.65)',
-    justifyContent: 'center',
-    padding: 20,
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    backgroundColor: 'rgba(12, 19, 40, 0.65)',
-    justifyContent: 'center',
-    padding: 20,
-    zIndex: 20,
-    elevation: 20,
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 10,
-  },
-  pickerCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 10,
-    maxHeight: 420,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  editModalTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  modalLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textTransform: 'uppercase',
-  },
-  modalValue: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  itemRow: {
-    marginTop: 6,
-    padding: 8,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  itemName: {
-    color: colors.text,
-    fontWeight: '600',
-  },
-  itemMeta: {
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  editItems: {
-    gap: 8,
-  },
-  editRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 8,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  editText: {
-    flex: 1,
-  },
-  editQty: {
-    width: 60,
-    backgroundColor: colors.surface,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    color: colors.text,
-    borderWidth: 1,
-    borderColor: colors.border,
-    textAlign: 'center',
-  },
-  removeButton: {
-    backgroundColor: colors.dangerSurface,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-  },
-  removeText: {
-    color: colors.danger,
-    fontWeight: '700',
-  },
-  addRow: {
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  addInput: {
-    flex: 1,
-  },
-  addQty: {
-    width: 70,
-  },
-  addButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  addButtonText: {
-    color: colors.background,
-    fontWeight: '700',
-  },
-  message: {
-    padding: 10,
-    borderRadius: 10,
-    marginTop: 6,
-  },
-  messageSuccess: {
-    backgroundColor: colors.successSurface,
-    color: colors.success,
-  },
-  messageError: {
-    backgroundColor: colors.dangerSurface,
-    color: colors.danger,
-  },
-  modalActions: {
-    marginTop: 10,
-    gap: 10,
-  },
-  editModalActions: {
-    marginTop: 10,
-    gap: 10,
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  editModalButton: {
-    width: '45%',
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  editModalButtonText: {
-    color: '#000000',
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  actionButton: {
-    backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  actionSecondary: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  actionText: {
-    color: colors.text,
-    fontWeight: '700',
-  },
-  actionTextOnAccent: {
-    color: colors.background,
-    fontWeight: '700',
-  },
-  actionPrimary: {
-    backgroundColor: colors.accent,
-    borderRadius: 12,
-    paddingVertical: 10,
-    alignItems: 'center' as const,
-  },
-  listRow: {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    paddingVertical: 12,
-    gap: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  listText: {
-    flex: 1,
-  },
-  listTitle: {
-    color: colors.text,
-    fontWeight: '700' as const,
-    fontSize: 15,
-  },
-  listCaption: {
-    color: colors.textMuted,
-    fontSize: 13,
-    marginTop: 3,
-  },
-});
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    center: {
+      flex: 1,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 20,
+    },
+    centerInline: {
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 12,
+      gap: 8,
+    },
+    centerText: {
+      marginTop: 12,
+      color: colors.textSubtle,
+      fontWeight: "600",
+    },
+    errorTitle: {
+      color: colors.danger,
+      fontSize: 18,
+      fontWeight: "700",
+    },
+    errorText: {
+      color: colors.textSubtle,
+      marginTop: 8,
+      textAlign: "center",
+    },
+    retry: {
+      marginTop: 16,
+      backgroundColor: colors.accent,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 10,
+    },
+    retryText: {
+      color: colors.background,
+      fontWeight: "700",
+    },
+    headerBanner: {
+      padding: 20,
+      paddingBottom: 14,
+      gap: 6,
+      borderRadius: 0,
+    },
+    searchCard: {
+      backgroundColor: colors.surface,
+      padding: 16,
+      gap: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    title: {
+      color: "#FFFFFF",
+      fontSize: 24,
+      fontWeight: "800",
+      letterSpacing: -0.5,
+      fontFamily: Platform.OS === "ios" ? "System" : "sans-serif-medium",
+    },
+    subtitle: {
+      color: "rgba(255,255,255,0.8)",
+      fontSize: 14,
+    },
+    input: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 999,
+      paddingHorizontal: 18,
+      paddingVertical: 12,
+      color: colors.text,
+      fontSize: 15,
+    },
+    placeholderText: {
+      color: colors.textMuted,
+    },
+    selectedText: {
+      color: colors.text,
+      fontWeight: "600",
+    },
+    filterRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8,
+    },
+    filterPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: 999,
+      backgroundColor: colors.surfaceMuted,
+    },
+    filterPillActive: {
+      backgroundColor: colors.accent,
+    },
+    filterText: {
+      color: colors.textSubtle,
+      textTransform: "capitalize",
+      fontSize: 13,
+      fontWeight: "600",
+    },
+    filterTextActive: {
+      color: "#FFFFFF",
+      fontWeight: "700",
+    },
+    pendingButton: {
+      backgroundColor: colors.warningSurface,
+      borderRadius: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      alignItems: "center",
+    },
+    pendingButtonText: {
+      color: colors.warning,
+      fontWeight: "700",
+      fontSize: 14,
+    },
+    pendingCard: {
+      marginHorizontal: 20,
+      marginTop: 4,
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 16,
+      gap: 10,
+      shadowColor: "#000",
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 3,
+    },
+    pendingTitle: {
+      color: colors.warning,
+      fontWeight: "700",
+    },
+    pendingBadge: {
+      color: colors.warning,
+      textTransform: "capitalize",
+      fontWeight: "700",
+    },
+    listActions: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    listActionButton: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    listActionButtonAlt: {
+      backgroundColor: colors.warningSurface,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+    },
+    listActionText: {
+      color: colors.text,
+      fontWeight: "700",
+    },
+    listActionTextAlt: {
+      color: colors.warning,
+      fontWeight: "700",
+    },
+    list: {
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 20,
+      gap: 12,
+    },
+    productList: {
+      maxHeight: 260,
+    },
+    dropdownItem: {
+      padding: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    dropdownTitle: {
+      color: colors.text,
+      fontWeight: "600",
+    },
+    dropdownSubtitle: {
+      color: colors.textMuted,
+      marginTop: 4,
+    },
+    emptyText: {
+      color: colors.textMuted,
+      textAlign: "center",
+      marginTop: 40,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: 20,
+      padding: 18,
+      gap: 12,
+      shadowColor: "#000",
+      shadowOpacity: 0.05,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 3 },
+      elevation: 3,
+    },
+    cardRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    cardText: {
+      flex: 1,
+    },
+    cardTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: "700",
+    },
+    cardSubtitle: {
+      color: colors.textMuted,
+      marginTop: 4,
+    },
+    cardAmount: {
+      color: colors.accent,
+      fontWeight: "700",
+    },
+    cardFooter: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    cardActions: {
+      flexDirection: "row",
+      gap: 8,
+      marginTop: 8,
+    },
+    cardActionButton: {
+      flex: 1,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 12,
+      paddingVertical: 9,
+      alignItems: "center",
+    },
+    cardActionButtonAlt: {
+      flex: 1,
+      backgroundColor: colors.warningSurface,
+      borderRadius: 12,
+      paddingVertical: 9,
+      alignItems: "center",
+    },
+    cardActionText: {
+      color: colors.text,
+      fontWeight: "700",
+    },
+    cardActionTextAlt: {
+      color: colors.warning,
+      fontWeight: "700",
+    },
+    cardMeta: {
+      color: colors.textMuted,
+    },
+    cardStatus: {
+      color: colors.textSubtle,
+      textTransform: "capitalize",
+      fontWeight: "700",
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(12, 19, 40, 0.65)",
+      justifyContent: "center",
+      padding: 20,
+    },
+    overlay: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      backgroundColor: "rgba(12, 19, 40, 0.65)",
+      justifyContent: "center",
+      padding: 20,
+      zIndex: 20,
+      elevation: 20,
+    },
+    modalCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 10,
+    },
+    pickerCard: {
+      backgroundColor: colors.surface,
+      borderRadius: 16,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 10,
+      maxHeight: 420,
+    },
+    modalTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "700",
+    },
+    editModalTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    modalLabel: {
+      color: colors.textMuted,
+      fontSize: 12,
+      textTransform: "uppercase",
+    },
+    modalValue: {
+      color: colors.text,
+      fontWeight: "600",
+    },
+    detailRow: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      marginTop: 8,
+      gap: 8,
+    },
+    detailLabel: {
+      width: 100,
+      color: colors.textMuted,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    detailValue: {
+      color: colors.text,
+      fontWeight: "600",
+      flex: 1,
+    },
+    itemRow: {
+      marginTop: 6,
+      padding: 10,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    itemName: {
+      color: colors.text,
+      fontWeight: "600",
+    },
+    itemMeta: {
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+    editItems: {
+      gap: 8,
+    },
+    editRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      padding: 8,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    editText: {
+      flex: 1,
+    },
+    editQty: {
+      width: 60,
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.border,
+      textAlign: "center",
+    },
+    removeButton: {
+      backgroundColor: colors.dangerSurface,
+      borderRadius: 8,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+    },
+    removeText: {
+      color: colors.danger,
+      fontWeight: "700",
+    },
+    addRow: {
+      flexDirection: "row",
+      gap: 8,
+      alignItems: "center",
+    },
+    addInput: {
+      flex: 1,
+    },
+    addQty: {
+      width: 70,
+    },
+    addButton: {
+      backgroundColor: colors.accent,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+    },
+    addButtonText: {
+      color: colors.background,
+      fontWeight: "700",
+    },
+    message: {
+      padding: 10,
+      borderRadius: 10,
+      marginTop: 6,
+    },
+    messageSuccess: {
+      backgroundColor: colors.successSurface,
+      color: colors.success,
+    },
+    messageError: {
+      backgroundColor: colors.dangerSurface,
+      color: colors.danger,
+    },
+    modalActions: {
+      marginTop: 14,
+      gap: 10,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    modalActionButton: {
+      flex: 1,
+      marginHorizontal: 6,
+    },
+    itemTotal: {
+      color: colors.text,
+      fontWeight: "700",
+      marginLeft: 12,
+    },
+    modalSubValue: {
+      color: colors.textMuted,
+      fontSize: 13,
+      marginTop: 4,
+    },
+    modalTotalRow: {
+      marginTop: 12,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      paddingTop: 10,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    editModalActions: {
+      marginTop: 10,
+      gap: 10,
+      flexDirection: "row",
+      justifyContent: "center",
+    },
+    editModalButton: {
+      width: "45%",
+      paddingVertical: 12,
+      alignItems: "center",
+    },
+    editModalButtonText: {
+      color: "#000000",
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    actionButton: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingVertical: 10,
+      alignItems: "center",
+    },
+    actionSecondary: {
+      backgroundColor: colors.surfaceMuted,
+    },
+    actionText: {
+      color: colors.text,
+      fontWeight: "700",
+    },
+    actionTextOnAccent: {
+      color: colors.background,
+      fontWeight: "700",
+    },
+    actionPrimary: {
+      backgroundColor: colors.accent,
+      borderRadius: 12,
+      paddingVertical: 10,
+      alignItems: "center" as const,
+    },
+    listRow: {
+      flexDirection: "row" as const,
+      alignItems: "center" as const,
+      justifyContent: "space-between" as const,
+      paddingVertical: 12,
+      gap: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    listText: {
+      flex: 1,
+    },
+    listTitle: {
+      color: colors.text,
+      fontWeight: "700" as const,
+      fontSize: 15,
+    },
+    listCaption: {
+      color: colors.textMuted,
+      fontSize: 13,
+      marginTop: 3,
+    },
+  });

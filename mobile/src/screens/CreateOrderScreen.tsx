@@ -62,7 +62,7 @@ interface BluetoothPrinterDevice {
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
-const RECEIPT_LINE_WIDTH = 32;
+const RECEIPT_LINE_WIDTH = 42;
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
 const DEFAULT_BLUETOOTH_PRINTER_PROFILE = {
   printerDpi: 203,
