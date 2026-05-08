@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -49,113 +50,120 @@ export default function LoginScreen() {
       >
         <KeyboardAvoidingView
           style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
         >
-          {/* Logo / Brand area */}
-          <View style={styles.brandArea}>
-            <View style={styles.logoCircle}>
-              <Ionicons name="flash" size={36} color="#fff" />
-            </View>
-            <Text style={styles.brandName}>Rep Route</Text>
-            <Text style={styles.brandTagline}>Field Sales Platform</Text>
-          </View>
-
-          {/* Card */}
-          <View style={styles.card}>
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Sign in to your account</Text>
-
-            {/* Email field */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Email</Text>
-              <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
-                <Ionicons
-                  name="mail-outline"
-                  size={18}
-                  color={emailFocused ? colors.accent : colors.textMuted}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  placeholder="you@example.com"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  onFocus={() => setEmailFocused(true)}
-                  onBlur={() => setEmailFocused(false)}
-                />
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Logo / Brand area */}
+            <View style={styles.brandArea}>
+              <View style={styles.logoCircle}>
+                <Ionicons name="flash" size={36} color="#fff" />
               </View>
+              <Text style={styles.brandName}>Rep Route</Text>
+              <Text style={styles.brandTagline}>Field Sales Platform</Text>
             </View>
 
-            {/* Password field */}
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Password</Text>
-              <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
-                <Ionicons
-                  name="lock-closed-outline"
-                  size={18}
-                  color={passwordFocused ? colors.accent : colors.textMuted}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  secureTextEntry={!showPassword}
-                  placeholder="Enter your password"
-                  placeholderTextColor={colors.textMuted}
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                  onFocus={() => setPasswordFocused(true)}
-                  onBlur={() => setPasswordFocused(false)}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(v => !v)}
-                  style={styles.eyeButton}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
+            {/* Card */}
+            <View style={styles.card}>
+              <Text style={styles.title}>Welcome back</Text>
+              <Text style={styles.subtitle}>Sign in to your account</Text>
+
+              {/* Email field */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Email</Text>
+                <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
                   <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    name="mail-outline"
                     size={18}
-                    color={colors.textMuted}
+                    color={emailFocused ? colors.accent : colors.textMuted}
+                    style={styles.inputIcon}
                   />
-                </TouchableOpacity>
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="email-address"
+                    placeholder="you@example.com"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.input}
+                    value={email}
+                    onChangeText={setEmail}
+                    onFocus={() => setEmailFocused(true)}
+                    onBlur={() => setEmailFocused(false)}
+                  />
+                </View>
               </View>
-            </View>
 
-            {/* Error */}
-            {error ? (
-              <View style={styles.errorBox}>
-                <Ionicons name="alert-circle-outline" size={15} color={colors.danger} />
-                <Text style={styles.errorText}>{error}</Text>
+              {/* Password field */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.label}>Password</Text>
+                <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={passwordFocused ? colors.accent : colors.textMuted}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    secureTextEntry={!showPassword}
+                    placeholder="Enter your password"
+                    placeholderTextColor={colors.textMuted}
+                    style={styles.input}
+                    value={password}
+                    onChangeText={setPassword}
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword((v) => !v)}
+                    style={styles.eyeButton}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={colors.textMuted}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
-            ) : null}
 
-            {/* Submit */}
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleSubmit}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={[colors.gradientStart, colors.gradientEnd]}
-                style={styles.buttonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+              {/* Error */}
+              {error ? (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={15} color={colors.danger} />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
+
+              {/* Submit */}
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleSubmit}
+                disabled={loading}
+                activeOpacity={0.85}
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Text style={styles.buttonText}>Sign in</Text>
-                    <Ionicons name="arrow-forward" size={18} color="#fff" />
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+                <LinearGradient
+                  colors={[colors.gradientStart, colors.gradientEnd]}
+                  style={styles.buttonGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Text style={styles.buttonText}>Sign in</Text>
+                      <Ionicons name="arrow-forward" size={18} color="#fff" />
+                    </>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </LinearGradient>
     </DismissKeyboard>
@@ -169,9 +177,13 @@ const makeStyles = (colors: ThemeColors) =>
     },
     container: {
       flex: 1,
+      padding: 24,
+    },
+    scrollContent: {
+      flexGrow: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      padding: 24,
+      paddingBottom: 24,
     },
     brandArea: {
       alignItems: 'center',

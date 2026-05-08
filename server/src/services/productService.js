@@ -1418,13 +1418,17 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
     await client.query('BEGIN');
 
     const orderItemsRes = await client.query(
-      'SELECT id, product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1',
+      `SELECT oi.id, oi.product_id, p.name as product_name, oi.unit_price, oi.quantity, oi.total
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = $1`,
       [order_id]
     );
     const orderItemsMap = new Map();
     orderItemsRes.rows.forEach(item => {
       orderItemsMap.set(item.id, {
         product_id: item.product_id,
+        product_name: item.product_name || null,
         unit_price: Number(item.unit_price),
         quantity: Number(item.quantity)
       });
@@ -1472,12 +1476,21 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
 
     await client.query('COMMIT');
 
+    const returnedItemsForLog = normalizedItems.map((item) => {
+      const existing = orderItemsMap.get(item.order_item_id);
+      return {
+        ...item,
+        product_id: existing?.product_id ?? null,
+        product_name: existing?.product_name ?? null,
+      };
+    });
+
     await logOrderAction({
       order_id,
       sales_rep_id,
       action: 'return',
       details: {
-        returned_items: normalizedItems,
+        returned_items: returnedItemsForLog,
         previous_total: Number(order.total),
         new_total: newTotal
       }
@@ -1551,18 +1564,46 @@ async function listOrderLogs() {
       const hasProductNames = log.details.returned_items.some(item => item.product_name);
       if (!hasProductNames) {
         try {
-          const productIds = log.details.returned_items.map(item => item.product_id);
-          const productNamesQuery = await pool.query(
-            'SELECT id, name FROM products WHERE id = ANY($1)',
-            [productIds]
-          );
+          const returnedItems = log.details.returned_items;
+          const missingProductId = returnedItems.some((item) => !item.product_id && item.order_item_id);
+
+          if (missingProductId) {
+            const orderItemIds = returnedItems.map((item) => item.order_item_id).filter(Boolean);
+            const orderItemsQuery = await pool.query(
+              `SELECT oi.id as order_item_id, oi.product_id, p.name
+               FROM order_items oi
+               LEFT JOIN products p ON p.id = oi.product_id
+               WHERE oi.id = ANY($1)`,
+              [orderItemIds],
+            );
+
+            const orderItemMap = {};
+            orderItemsQuery.rows.forEach((row) => {
+              orderItemMap[row.order_item_id] = { product_id: row.product_id, product_name: row.name || null };
+            });
+
+            log.details.returned_items = returnedItems.map((item) => {
+              const found = item.order_item_id ? orderItemMap[item.order_item_id] : null;
+              return {
+                ...item,
+                product_id: item.product_id || found?.product_id || null,
+                product_name: item.product_name || found?.product_name || null,
+              };
+            });
+          }
+
+          const productIds = log.details.returned_items.map(item => item.product_id).filter(Boolean);
+          const productNamesQuery = productIds.length
+            ? await pool.query('SELECT id, name FROM products WHERE id = ANY($1)', [productIds])
+            : { rows: [] };
           const productMap = {};
           productNamesQuery.rows.forEach(product => {
             productMap[product.id] = product.name;
           });
+
           log.details.returned_items = log.details.returned_items.map(item => ({
             ...item,
-            product_name: productMap[item.product_id] || 'Unknown Product'
+            product_name: item.product_name || productMap[item.product_id] || 'Unknown Product'
           }));
           await pool.query(
             'UPDATE order_logs SET details = $1 WHERE id = $2',
