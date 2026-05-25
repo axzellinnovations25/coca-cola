@@ -3,6 +3,7 @@ const router = express.Router({ mergeParams: true });
 const userController = require('../controllers/userController');
 const { authenticateJWT } = require('../middleware/auth');
 const productController = require('../controllers/productController');
+const reportController = require('../controllers/reportController');
 
 function requireAdminOrSuperadmin(req, res, next) {
   if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
@@ -117,6 +118,9 @@ router.get('/collections/representative/stats', authenticateJWT, requireSalesRep
 
 // Sales representatives statistics (Admin/Superadmin only)
 router.get('/sales-representatives/stats', authenticateJWT, requireAdminOrSuperadmin, productController.getSalesRepresentativesWithStats);
+
+// Reports (Admin/Superadmin only)
+router.get('/reports/repwise-shop-limits.pdf', authenticateJWT, requireAdminOrSuperadmin, reportController.downloadRepwiseShopLimitsPdf);
 
 // Admin collections (Admin/Superadmin only)
 router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);

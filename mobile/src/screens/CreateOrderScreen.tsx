@@ -123,6 +123,10 @@ const padRight = (value: string, width: number) =>
   value.length >= width ? value.slice(0, width) : `${value}${' '.repeat(width - value.length)}`;
 const padLeft = (value: string, width: number) =>
   value.length >= width ? value.slice(0, width) : `${' '.repeat(width - value.length)}${value}`;
+const joinColumns = (columns: Array<{ value: string; width: number; align?: 'left' | 'right' }>) =>
+  columns
+    .map(({ value, width, align = 'left' }) => (align === 'right' ? padLeft(value, width) : padRight(value, width)))
+    .join(' ');
 
 const hasNativeBluetoothRawPrint = () =>
   typeof (NativeModules as any)?.ThermalPrinterModule?.printBluetoothRaw === 'function';
@@ -495,10 +499,11 @@ export default function CreateOrderScreen() {
     const itemCount = (receipt?.items || []).length;
 
     const totalWidth = Math.max(24, lineWidth);
-    const itemWidth = totalWidth >= 42 ? 18 : 14;
-    const qtyWidth = 4;
+    const columnGaps = 3;
+    const itemWidth = totalWidth >= 42 ? 18 : 12;
+    const qtyWidth = totalWidth >= 42 ? 4 : 3;
     const unitWidth = totalWidth >= 42 ? 8 : 6;
-    const totalWidthCol = totalWidth - itemWidth - qtyWidth - unitWidth;
+    const totalWidthCol = totalWidth - itemWidth - qtyWidth - unitWidth - columnGaps;
     const separator = '-'.repeat(totalWidth);
     const strongSeparator = '='.repeat(totalWidth);
 
@@ -517,7 +522,12 @@ export default function CreateOrderScreen() {
     lines.push(separator);
     if (totalWidth >= 32) {
       lines.push(
-        `${padRight('Item', itemWidth)}${padLeft('Qty', qtyWidth)}${padLeft('Unit', unitWidth)}${padLeft('Total', totalWidthCol)}`,
+        joinColumns([
+          { value: 'Item', width: itemWidth },
+          { value: 'Qty', width: qtyWidth, align: 'right' },
+          { value: 'Unit', width: unitWidth, align: 'right' },
+          { value: 'Total', width: totalWidthCol, align: 'right' },
+        ]),
       );
       lines.push(separator);
     } else {
@@ -532,7 +542,12 @@ export default function CreateOrderScreen() {
       const itemName = `${index + 1}. ${item.name || 'Item'}${freeQty > 0 ? ` (+${freeQty}F)` : ''}`;
       if (totalWidth >= 32) {
         lines.push(
-          `${padRight(trimCell(itemName, itemWidth), itemWidth)}${padLeft(String(qty), qtyWidth)}${padLeft(unit.toFixed(2), unitWidth)}${padLeft(total, totalWidthCol)}`,
+          joinColumns([
+            { value: trimCell(itemName, itemWidth), width: itemWidth },
+            { value: String(qty), width: qtyWidth, align: 'right' },
+            { value: unit.toFixed(2), width: unitWidth, align: 'right' },
+            { value: total, width: totalWidthCol, align: 'right' },
+          ]),
         );
         if (freeQty > 0) {
           lines.push(joinLine('  Free Qty', String(freeQty), totalWidth));

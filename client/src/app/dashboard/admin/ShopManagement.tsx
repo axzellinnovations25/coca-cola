@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { apiFetch, clearCache } from '../../../utils/api';
+import { apiFetch, apiFetchBlob, clearCache } from '../../../utils/api';
 
 interface Shop {
   id: string;
@@ -246,6 +246,30 @@ export default function ShopManagement() {
     URL.revokeObjectURL(url);
   }
 
+  async function downloadRepwisePdf() {
+    try {
+      const blob = await apiFetchBlob('/api/marudham/reports/repwise-shop-limits.pdf', {
+        method: 'GET',
+        headers: { Accept: 'application/pdf' },
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      a.download = `repwise_shop_limits_report_${yyyy}-${mm}-${dd}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || 'Failed to download PDF');
+    }
+  }
+
   const fetchShops = () => {
     setLoading(true);
     setError('');
@@ -479,6 +503,16 @@ export default function ShopManagement() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
               Export
+            </button>
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold transition-colors"
+              onClick={downloadRepwisePdf}
+              title="Download repwise shop names + limits (PDF)"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Repwise PDF
             </button>
             <button
               className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"

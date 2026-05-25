@@ -127,6 +127,53 @@ async function refreshToken(): Promise<string | null> {
   return null;
 }
 
+export async function apiFetchBlob(path: string, options: RequestInit = {}) {
+  try {
+    let token = typeof window !== 'undefined' ? getPersistentStorage('token') : null;
+    const headers: Record<string, string> = {
+      ...(options.headers as any),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    const base = API_CONFIG.baseUrl;
+    let res = await fetch(`${base}${path}`, {
+      ...options,
+      headers,
+      signal: AbortSignal.timeout(20000), // 20 second timeout for downloads
+    });
+
+    if (res.status === 401 && token && typeof window !== 'undefined') {
+      const newToken = await refreshToken();
+      if (newToken) {
+        headers.Authorization = `Bearer ${newToken}`;
+        res = await fetch(`${base}${path}`, {
+          ...options,
+          headers,
+          signal: AbortSignal.timeout(20000),
+        });
+      } else {
+        clearPersistentStorage('token');
+        clearPersistentStorage('sessionInfo');
+        window.location.href = '/login';
+        throw new Error('Session expired. Please login again.');
+      }
+    }
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: 'Network error' }));
+      throw new Error(errorData.error || `HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    return await res.blob();
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') throw new Error('Request timeout - please try again');
+      if (error.message.includes('Failed to fetch')) throw new Error('Network error - please check your connection');
+    }
+    throw error;
+  }
+}
+
 // Legacy apiFetch function for backward compatibility
 export async function apiFetch(path: string, options: RequestInit = {}) {
   const method = options.method || 'GET';
