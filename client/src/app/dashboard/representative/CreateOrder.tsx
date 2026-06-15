@@ -52,7 +52,6 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
   const [printReceipt, setPrintReceipt] = useState<any>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [sendingSMS, setSendingSMS] = useState(false);
-  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [messageStatus, setMessageStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [smsSent, setSmsSent] = useState(false);
   const [orderToConfirm, setOrderToConfirm] = useState<any>(null);
@@ -204,38 +203,6 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       });
     } finally {
       setSendingSMS(false);
-    }
-  };
-
-  const handleSendWhatsApp = async () => {
-    if (!receipt) return;
-    
-    setSendingWhatsApp(true);
-    setMessageStatus({ type: null, message: '' });
-    
-    try {
-      const response = await apiFetch(`/api/marudham/orders/${receipt.id}/send-whatsapp`, {
-        method: 'POST'
-      });
-      
-      if (response.success) {
-        setMessageStatus({ 
-          type: 'success', 
-          message: 'WhatsApp message sent successfully to shop owner!' 
-        });
-      } else {
-        setMessageStatus({ 
-          type: 'error', 
-          message: response.error || 'Failed to send WhatsApp message' 
-        });
-      }
-    } catch (error: any) {
-      setMessageStatus({ 
-        type: 'error', 
-        message: error.message || 'Failed to send WhatsApp message' 
-      });
-    } finally {
-      setSendingWhatsApp(false);
     }
   };
 
@@ -1173,7 +1140,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
               </div>
             </div>
 
-            {/* SMS and WhatsApp Buttons */}
+            {/* SMS notification */}
             <div className="mt-6 pt-4 border-t border-gray-200">
               <p className="text-sm text-gray-600 mb-3 text-center">Send Order Details to Shop Owner</p>
               
@@ -1220,7 +1187,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                 <button 
                   className="flex-1 px-4 py-2 bg-blue-100 hover:bg-blue-200 disabled:bg-blue-50 disabled:cursor-not-allowed text-blue-700 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
                   onClick={handleSendSMS}
-                  disabled={sendingSMS || sendingWhatsApp || !receipt.shop.phone || smsSent}
+                  disabled={sendingSMS || !receipt.shop.phone || smsSent}
                 >
                   {sendingSMS ? (
                     <>
@@ -1241,7 +1208,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
               <p className="text-xs text-gray-500 mt-2 text-center">
                 {receipt.shop.phone 
                   ? smsSent 
-                    ? 'SMS sent successfully! You can now send WhatsApp message if needed.'
+                    ? 'SMS sent successfully!'
                     : 'SMS will be sent automatically after order creation'
                   : 'Phone number not available - please update shop details'
                 }

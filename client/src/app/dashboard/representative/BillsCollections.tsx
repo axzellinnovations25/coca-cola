@@ -20,8 +20,21 @@ interface OrderItem {
 interface ShopWithBills {
   shop_id: string;
   shop_name: string;
+  name?: string;
   total_outstanding: number;
   bills: Bill[];
+}
+
+interface PaymentReceipt {
+  bill: Bill;
+  payment: {
+    id: string;
+    created_at: string;
+    status: string;
+  };
+  shop: ShopWithBills | undefined;
+  paymentAmount: number;
+  paymentNotes: string;
 }
 
 interface BillsCollectionsProps {
@@ -47,12 +60,10 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState('');
-  const [paymentSuccess, setPaymentSuccess] = useState('');
   const [lastPaymentId, setLastPaymentId] = useState<string | null>(null);
   const [smsStatus, setSmsStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [sendingSMS, setSendingSMS] = useState(false);
-  const [printReceiptLoading, setPrintReceiptLoading] = useState(false);
-  const [printReceipt, setPrintReceipt] = useState<any>(null);
+  const [printReceipt, setPrintReceipt] = useState<PaymentReceipt | null>(null);
 
   // Return modal state
   const [showReturnModal, setShowReturnModal] = useState(false);
@@ -100,10 +111,19 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
     setPaymentAmount('');
     setPaymentNotes('');
     setPaymentError('');
-    setPaymentSuccess('');
     setSmsStatus({ type: null, message: '' });
     setLastPaymentId(null);
     setShowPaymentModal(true);
+  };
+
+  const closePaymentReceipt = () => {
+    setPrintReceipt(null);
+    setSelectedBill(null);
+    setPaymentAmount('');
+    setPaymentNotes('');
+    setPaymentError('');
+    setLastPaymentId(null);
+    setSmsStatus({ type: null, message: '' });
   };
 
   const handleReturnProducts = async (bill: Bill) => {
@@ -156,63 +176,6 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
       });
     } finally {
       setSendingSMS(false);
-    }
-  };
-
-  // Function to handle print receipt - shows modal first
-  const handlePrintReceipt = async () => {
-    if (!selectedBill || !lastPaymentId) return;
-    
-    setPrintReceiptLoading(true);
-    
-    try {
-      // Get payment details for receipt (with fallback)
-      let payment = null;
-      try {
-        const paymentResponse = await apiFetch(`/api/marudham/payments/${lastPaymentId}`);
-        if (paymentResponse.success && paymentResponse.payment) {
-          payment = paymentResponse.payment;
-        }
-      } catch (apiError) {
-        console.warn('Payment API not available, using fallback data');
-        // Create fallback payment data
-        payment = {
-          id: lastPaymentId,
-          created_at: new Date().toISOString(),
-          status: 'Completed'
-        };
-      }
-      
-      const shop = shops.find(s => s.bills?.some(b => b.id === selectedBill.id));
-      
-      // Set the receipt in state for the modal view
-      setPrintReceipt({
-        bill: selectedBill,
-        payment: payment,
-        shop: shop,
-        paymentAmount: Number(paymentAmount),
-        paymentNotes: paymentNotes
-      });
-      setSmsStatus({ type: null, message: '' });
-
-    } catch (error: any) {
-      console.error('Error handling print receipt:', error);
-      // Fallback to basic payment info in modal
-      const shop = shops.find(s => s.bills?.some(b => b.id === selectedBill.id));
-      setPrintReceipt({
-        bill: selectedBill,
-        payment: {
-          id: lastPaymentId,
-          created_at: new Date().toISOString(),
-          status: 'Completed'
-        },
-        shop: shop,
-        paymentAmount: Number(paymentAmount),
-        paymentNotes: paymentNotes
-      });
-      setSmsStatus({ type: 'error', message: 'Error generating receipt. Showing basic payment info.' });
-    } finally {
-      setPrintReceiptLoading(false);
     }
   };
 
@@ -533,7 +496,6 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
     if (!selectedBill) return;
     setPaymentLoading(true);
     setPaymentError('');
-    setPaymentSuccess('');
     setSmsStatus({ type: null, message: '' });
     
     try {
@@ -542,7 +504,6 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
         body: JSON.stringify({ amount: Number(paymentAmount), notes: paymentNotes }),
       });
       
-      setPaymentSuccess('Payment recorded successfully!');
       setLastPaymentId(response.payment_id); // Store the payment ID for SMS sending
       
       // Auto-send SMS after payment recording
@@ -563,15 +524,22 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
         });
       }
       
-      // Close modal and reset fields after success
+      const shop = shops.find(s => s.bills?.some(b => b.id === selectedBill.id));
+      setPrintReceipt({
+        bill: selectedBill,
+        payment: {
+          id: response.payment_id,
+          created_at: new Date().toISOString(),
+          status: 'Completed'
+        },
+        shop,
+        paymentAmount: Number(paymentAmount),
+        paymentNotes
+      });
+
+      // The receipt owns the payment snapshot after a successful submission.
       setShowPaymentModal(false);
-      setSelectedBill(null);
-      setPaymentAmount('');
-      setPaymentNotes('');
       setPaymentError('');
-      setPaymentSuccess('');
-      setLastPaymentId(null);
-      setSmsStatus({ type: null, message: '' });
 
       // Trigger refresh after payment
       clearCache('/api/marudham/bills/representative');
@@ -1037,8 +1005,6 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                 rows={3}
               />
               {paymentError && <div className="text-red-600 text-sm text-center mb-4 font-medium bg-red-50 p-3 rounded-lg">{paymentError}</div>}
-              {paymentSuccess && <div className="text-green-600 text-sm text-center mb-4 font-medium bg-green-50 p-3 rounded-lg">{paymentSuccess}</div>}
-              
               <div className="flex gap-2">
                 <button
                   type="submit"
@@ -1070,28 +1036,6 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                 )}
               </div>
               
-              {/* Print Receipt Button - Show after successful payment */}
-              {lastPaymentId && paymentSuccess && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <button
-                    type="button"
-                    className="w-full py-2 bg-green-100 hover:bg-green-200 disabled:bg-green-50 disabled:cursor-not-allowed text-green-700 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2"
-                    onClick={handlePrintReceipt}
-                    disabled={printReceiptLoading}
-                  >
-                    {printReceiptLoading ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-                        Preparing...
-                      </>
-                    ) : (
-                      <>
-                        <span>🖨️</span> Print Receipt
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
             </form>
           </div>
         </div>
@@ -1194,7 +1138,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
               <h2 className="text-xl font-bold text-gray-900">Payment Receipt Preview</h2>
               <button 
                 className="text-gray-400 hover:text-gray-600 text-2xl font-bold transition-colors p-1 rounded-full hover:bg-gray-100"
-                onClick={() => setPrintReceipt(null)}
+                onClick={closePaymentReceipt}
                 aria-label="Close"
               >
                 &times;
@@ -1205,7 +1149,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
             <div className="border border-gray-200 p-4 rounded-lg bg-white print-receipt">
               {/* Header */}
               <div className="text-center mb-4 print:mb-3">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1 print:text-base print:font-bold print:text-black">MotionRep</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-1 print:text-base print:font-bold print:text-black">S.B Distribution</h3>
                 <p className="text-sm text-gray-600 print:text-xs print:text-black">Payment Receipt</p>
                 <div className="mt-2 print:mt-1">
                   <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-medium print:bg-white print:text-black print:border print:border-black print:font-bold">
@@ -1230,11 +1174,11 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                 </div>
                 <div className="flex justify-between text-sm print:text-xs">
                   <span className="font-medium text-gray-700 print:font-bold print:text-black">Date:</span>
-                  <span className="text-gray-900 print:text-black">{new Date().toLocaleDateString()}</span>
+                  <span className="text-gray-900 print:text-black">{new Date(printReceipt.payment.created_at).toLocaleDateString()}</span>
                 </div>
                 <div className="flex justify-between text-sm print:text-xs">
                   <span className="font-medium text-gray-700 print:font-bold print:text-black">Time:</span>
-                  <span className="text-gray-900 print:text-black">{new Date().toLocaleTimeString()}</span>
+                  <span className="text-gray-900 print:text-black">{new Date(printReceipt.payment.created_at).toLocaleTimeString()}</span>
                 </div>
               </div>
 
@@ -1307,7 +1251,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
               {/* Footer */}
               <div className="text-center text-gray-500 text-sm print:text-xs print:text-black">
                 <p>Thank you for your payment!</p>
-                <p className="mt-1">MotionRep - Professional Sales Management</p>
+                <p className="mt-1">S.B Distribution</p>
                 <p className="mt-1 print:mt-0">Printed on: {new Date().toLocaleString()}</p>
               </div>
             </div>
@@ -1316,10 +1260,19 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
             <div className="flex flex-col sm:flex-row gap-3 print:hidden mt-6">
               <button 
                 className="flex-1 px-4 py-3 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold transition-colors active:scale-95" 
-                onClick={() => setPrintReceipt(null)}
+                onClick={closePaymentReceipt}
               >
                 Close
               </button>
+              {lastPaymentId && smsStatus.type === 'error' && (
+                <button
+                  className="flex-1 px-4 py-3 rounded-lg bg-blue-100 hover:bg-blue-200 disabled:opacity-50 text-blue-700 font-semibold transition-colors active:scale-95"
+                  onClick={handleSendPaymentSMS}
+                  disabled={sendingSMS}
+                >
+                  {sendingSMS ? 'Sending...' : 'Retry SMS'}
+                </button>
+              )}
               <button 
                 className="flex-1 px-4 py-3 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-semibold transition-colors active:scale-95" 
                 onClick={handleActualPrint}
@@ -1327,6 +1280,15 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
                 Print Receipt
               </button>
             </div>
+            {smsStatus.type && (
+              <div className={`mt-3 p-3 rounded-lg text-sm ${
+                smsStatus.type === 'success'
+                  ? 'bg-green-50 border border-green-200 text-green-700'
+                  : 'bg-red-50 border border-red-200 text-red-700'
+              }`}>
+                {smsStatus.message}
+              </div>
+            )}
           </div>
         </div>
       )}
