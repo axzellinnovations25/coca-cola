@@ -2284,7 +2284,7 @@ async function recordPurchase({ items, unit_cost, supplier, notes, user_id }) {
 
     // 1. Lock and fetch every affected product in a single round-trip.
     const productRes = await client.query(
-      'SELECT id, name, stock FROM products WHERE id = ANY($1::uuid[]) FOR UPDATE',
+      'SELECT id, name, stock FROM products WHERE id = ANY($1::text[]) FOR UPDATE',
       [productIds]
     );
 
@@ -2300,7 +2300,7 @@ async function recordPurchase({ items, unit_cost, supplier, notes, user_id }) {
     productIds.forEach((id, index) => {
       const previousStock = Number(productById.get(id).stock);
       const newStock = previousStock + qtyByProduct.get(id);
-      updateValues.push(`($${index * 2 + 1}::uuid, $${index * 2 + 2}::numeric)`);
+      updateValues.push(`($${index * 2 + 1}::text, $${index * 2 + 2}::numeric)`);
       updateParams.push(id, newStock);
     });
     await client.query(
