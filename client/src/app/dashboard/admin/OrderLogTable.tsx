@@ -109,7 +109,10 @@ function renderReturnDetails(details: any) {
             {returnedItems.map((item: any, index: number) => (
               <div key={index} className="flex justify-between items-center py-1 border-b last:border-0">
                 <span className="text-sm text-gray-700 font-medium">
-                  {item.product_name || `Product ${item.product_id || index + 1}`}
+                  {item.product_name ||
+                    item.product_id ||
+                    item.order_item_id ||
+                    `Product ${index + 1}`}
                 </span>
                 <span className="text-sm text-gray-600">Qty: {item.quantity}</span>
               </div>

@@ -25,12 +25,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
-import {
-  getSavedIosBlePrinter,
-  printReceiptLinesWithIosBlePrinter,
-  saveIosBlePrinter,
-  scanIosBlePrinters,
-} from '../services/iosBlePrinter';
+import { getSavedIosPrinterName, printReceiptLinesOnIos, selectIosPrinter } from '../utils/printing';
 
 interface Bill {
   id: string;
@@ -47,6 +42,23 @@ interface OrderItem {
   quantity: number;
   total: number;
 }
+
+type ReturnLineItem = OrderItem & { order_item_id: string; _rowKey: string };
+
+const normalizeOrderItem = (raw: any): ReturnLineItem => {
+  const unitPrice = Number(raw?.unit_price ?? raw?.unitPrice ?? 0);
+  const quantity = Number(raw?.quantity ?? 0);
+  const total = Number(raw?.total ?? raw?.item_total ?? raw?.itemTotal ?? unitPrice * quantity);
+  return {
+    order_item_id: String(raw?.order_item_id ?? raw?.orderItemId ?? raw?.id ?? ''),
+    product_id: String(raw?.product_id ?? raw?.productId ?? ''),
+    name: String(raw?.name ?? raw?.product_name ?? raw?.productName ?? ''),
+    unit_price: Number.isFinite(unitPrice) ? unitPrice : 0,
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+    total: Number.isFinite(total) ? total : 0,
+    _rowKey: '',
+  };
+};
 
 interface ShopWithBills {
   shop_id: string;
@@ -129,12 +141,22 @@ const pickDefaultPrinter = (devices: BluetoothPrinterDevice[]) => {
   const preferred = devices.find((printer) => isLikelyCpclPrinter(printer.deviceName));
   return preferred || devices[0];
 };
-const CPCL_RENDER_LINE_WIDTH = 16;
-const CPCL_LEFT_MARGIN = 0;
+const CPCL_RENDER_LINE_WIDTH = 32;
+const CPCL_LEFT_MARGIN = 8;
+const CPCL_RIGHT_MARGIN = 20;
+const CPCL_DOTS_PER_MM = 8;
+const CPCL_CHAR_WIDTH = 12;
 const CPCL_FONT = 0;
-const CPCL_MAG_X = 2;
-const CPCL_MAG_Y = 2;
+const CPCL_MAG_X = 1;
+const CPCL_MAG_Y = 1;
 const CPCL_BASE_LINE_HEIGHT = 30;
+const CPCL_PRINT_TONE = 60;
+const CPCL_PRINT_SPEED = 2;
+const CPCL_BOLD = 0;
+const getCpclLineWidth = (printerProfile: { printerWidthMM: number; printerNbrCharactersPerLine: number }) => {
+  const targetWidth = printerProfile.printerWidthMM <= 58 ? 32 : CPCL_RENDER_LINE_WIDTH;
+  return Math.min(targetWidth, printerProfile.printerNbrCharactersPerLine);
+};
 const sanitizeCpclLine = (value: string) =>
   value
     .replace(/["']/g, '')
@@ -251,7 +273,7 @@ export default function BillsCollectionsScreen() {
   });
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnOrderId, setReturnOrderId] = useState<string | null>(null);
-  const [returnItems, setReturnItems] = useState<OrderItem[]>([]);
+  const [returnItems, setReturnItems] = useState<ReturnLineItem[]>([]);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnLoading, setReturnLoading] = useState(false);
   const [returnError, setReturnError] = useState('');
@@ -284,12 +306,9 @@ export default function BillsCollectionsScreen() {
           if (savedMac) setSelectedPrinterMac(savedMac);
         })
         .catch(() => {});
-      getSavedIosBlePrinter()
-        .then((printer) => {
-          if (printer) {
-            setSelectedPrinterMac(printer.macAddress);
-            setSelectedIosPrinterName(printer.deviceName);
-          }
+      getSavedIosPrinterName()
+        .then((printerName) => {
+          if (printerName) setSelectedIosPrinterName(printerName);
         })
         .catch(() => {});
     }, [fetchBills]),
@@ -316,7 +335,7 @@ export default function BillsCollectionsScreen() {
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
     setSelectedShopName(shopName ?? '');
-    setPaymentAmount('');
+    setPaymentAmount(bill.outstanding.toFixed(2));
     setPaymentNotes('');
     setShowNotesInput(false);
     setPaymentError('');
@@ -333,12 +352,15 @@ export default function BillsCollectionsScreen() {
     setReturnOrderId(bill.id);
     try {
       const response = await apiFetch(`/api/marudham/orders/${bill.id}/details`);
-      const items = response.order?.items || [];
-      setReturnItems(items);
+      const items = (response.order?.items || []).map(normalizeOrderItem) as ReturnLineItem[];
+      const lineItems: ReturnLineItem[] = items.map((item, index) => ({
+        ...item,
+        _rowKey: `${item.product_id}:${item.unit_price}:${index}`,
+      }));
+      setReturnItems(lineItems);
       const initialQuantities: Record<string, number> = {};
-      items.forEach((item: OrderItem, index: number) => {
-        const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
-        initialQuantities[lineKey] = 0;
+      lineItems.forEach((item) => {
+        initialQuantities[item._rowKey] = 0;
       });
       setReturnQuantities(initialQuantities);
       setShowReturnModal(true);
@@ -348,6 +370,11 @@ export default function BillsCollectionsScreen() {
       setReturnLoading(false);
     }
   };
+
+  const returnRowKeyToOrderItemId = useMemo(() => {
+    const entries = returnItems.map((item) => [item._rowKey, item.order_item_id] as const);
+    return Object.fromEntries(entries) as Record<string, string>;
+  }, [returnItems]);
 
   const submitPayment = async () => {
     if (!selectedBill) return;
@@ -398,15 +425,13 @@ export default function BillsCollectionsScreen() {
 
   const submitReturn = async () => {
     if (!returnOrderId) return;
-    const productQtyMap: Record<string, number> = {};
-    returnItems.forEach((item: OrderItem, index: number) => {
-      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
-      const qty = returnQuantities[lineKey] ?? 0;
-      if (qty > 0) {
-        productQtyMap[item.product_id] = (productQtyMap[item.product_id] ?? 0) + qty;
-      }
-    });
-    const itemsToReturn = Object.entries(productQtyMap).map(([product_id, quantity]) => ({ product_id, quantity }));
+    const itemsToReturn = Object.entries(returnQuantities)
+      .filter(([, qty]) => qty > 0)
+      .map(([rowKey, quantity]) => ({
+        order_item_id: returnRowKeyToOrderItemId[rowKey],
+        quantity,
+      }))
+      .filter((item) => !!item.order_item_id);
 
     if (itemsToReturn.length === 0) {
       setReturnError('Select at least one item to return.');
@@ -494,7 +519,7 @@ export default function BillsCollectionsScreen() {
 
   const requestBluetoothPermissions = async () => {
     if (Platform.OS !== 'android') {
-      return true;
+      throw new Error('Bluetooth printing is supported on Android only in this app.');
     }
     if (Platform.Version >= 31) {
       const results = await PermissionsAndroid.requestMultiple([
@@ -525,22 +550,12 @@ export default function BillsCollectionsScreen() {
   };
 
   const loadPairedPrinters = async () => {
-    if (Platform.OS === 'ios') {
-      const savedPrinter = await getSavedIosBlePrinter();
-      if (savedPrinter) {
-        setSelectedPrinterMac(savedPrinter.macAddress);
-        setSelectedIosPrinterName(savedPrinter.deviceName);
-      }
-      const devices = await scanIosBlePrinters(BLUETOOTH_SCAN_TIMEOUT_MS);
-      setPairedPrinters(devices);
-      return devices;
-    }
     if (
       !ThermalPrinterModule ||
       typeof ThermalPrinterModule.getBluetoothDeviceList !== 'function' ||
       typeof ThermalPrinterModule.printBluetooth !== 'function'
     ) {
-      throw new Error('Bluetooth printer module is unavailable in this build.');
+      throw new Error('Bluetooth printer module is unavailable. Use an Android dev/EAS build (not Expo Go).');
     }
     const granted = await requestBluetoothPermissions();
     if (!granted) throw new Error('Bluetooth permission denied.');
@@ -561,9 +576,7 @@ export default function BillsCollectionsScreen() {
       if (!devices.length) {
         setPrintStatus({
           type: 'error',
-          message: Platform.OS === 'ios'
-            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
-            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
+          message: 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
         });
       }
     } catch (err: any) {
@@ -576,17 +589,31 @@ export default function BillsCollectionsScreen() {
   };
 
   const openPrinterPicker = async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        setLoadingPrinters(true);
+        setPrintStatus({ type: null, message: '' });
+        const printer = await selectIosPrinter();
+        setSelectedIosPrinterName(printer.name);
+        setPrintStatus({
+          type: 'success',
+          message: `Printer selected: ${printer.name}`,
+        });
+      } catch (err: any) {
+        const errorMessage = err?.message || 'Could not select iOS printer.';
+        setPrintStatus({ type: 'error', message: errorMessage });
+        Alert.alert('Printer', errorMessage);
+      } finally {
+        setLoadingPrinters(false);
+      }
+      return;
+    }
     setShowPrinterPicker(true);
     await refreshPairedPrinters();
   };
 
   const choosePrinter = async (printer: BluetoothPrinterDevice) => {
-    if (Platform.OS === 'ios') {
-      await saveIosBlePrinter(printer);
-      setSelectedIosPrinterName(printer.deviceName);
-    } else {
-      await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
-    }
+    await AsyncStorage.setItem(PRINTER_MAC_KEY, printer.macAddress);
     setSelectedPrinterMac(printer.macAddress);
     setShowPrinterPicker(false);
     setPrintStatus({
@@ -664,20 +691,74 @@ export default function BillsCollectionsScreen() {
     return `${escposLines.join('\n')}\n`;
   };
 
-  const buildPaymentCpclPayload = (lineWidth: number) => {
-    const lines = buildPaymentPrintableLines(lineWidth);
+  const buildPaymentCpclPayload = (
+    lineWidth: number,
+    printerProfile: { printerWidthMM: number; printerNbrCharactersPerLine: number },
+  ) => {
+    const paymentId = paymentReceipt?.payment_id ? paymentReceipt.payment_id.slice(0, 8).toUpperCase() : '--';
+    const billId = paymentReceipt?.bill_id ? paymentReceipt.bill_id.slice(0, 8).toUpperCase() : '--';
+    const paperWidth = Math.floor(printerProfile.printerWidthMM * CPCL_DOTS_PER_MM);
+    const rightEdge = paperWidth - CPCL_RIGHT_MARGIN;
     const startY = 24;
     const lineHeight = CPCL_BASE_LINE_HEIGHT * CPCL_MAG_Y + 8;
-    const x = CPCL_LEFT_MARGIN;
-    const height = Math.max(260, startY + lines.length * lineHeight + 80);
-    const cpclLines = lines
-      .map((line, index) => ({
-        y: startY + index * lineHeight,
-        text: sanitizeCpclLine(escapeCpclText(line)),
-      }))
-      .filter((row) => row.text.trim().length > 0)
-      .map((row) => `TEXT ${CPCL_FONT} 0 ${x} ${row.y} ${row.text}`);
-    return `! 0 200 200 ${height} 1\r\nSETMAG ${CPCL_MAG_X} ${CPCL_MAG_Y}\r\n${cpclLines.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
+    const commands: string[] = [];
+    let y = startY;
+
+    const text = (x: number, textY: number, value: string) => {
+      const clean = sanitizeCpclLine(escapeCpclText(value));
+      if (clean.trim()) commands.push(`TEXT ${CPCL_FONT} 0 ${Math.max(CPCL_LEFT_MARGIN, x)} ${textY} ${clean}`);
+    };
+    const textRight = (value: string, textY: number) => {
+      const clean = sanitizeCpclLine(escapeCpclText(value));
+      const x = rightEdge - clean.length * CPCL_CHAR_WIDTH;
+      text(x, textY, clean);
+    };
+    const rule = (ruleY: number) => {
+      commands.push(`LINE ${CPCL_LEFT_MARGIN} ${ruleY} ${rightEdge} ${ruleY} 1`);
+    };
+    const row = (label: string, value: string) => {
+      text(CPCL_LEFT_MARGIN, y, label);
+      textRight(value, y);
+      y += lineHeight;
+    };
+
+    text(CPCL_LEFT_MARGIN, y, 'S.B Distribution');
+    y += lineHeight;
+    text(CPCL_LEFT_MARGIN, y, 'Payment Receipt');
+    y += lineHeight;
+    rule(y);
+    y += lineHeight;
+    row('Payment #', paymentId);
+    row('Bill #', billId);
+    row('Shop', paymentReceipt?.shop_name || 'N/A');
+    row('Date', paymentReceiptDateInfo.dateText);
+    row('Time', paymentReceiptDateInfo.timeText);
+    rule(y);
+    y += lineHeight;
+    text(CPCL_LEFT_MARGIN, y, 'PAYMENT SUMMARY');
+    y += lineHeight;
+    rule(y);
+    y += lineHeight;
+    row('Description', 'Amount (LKR)');
+    rule(y);
+    y += lineHeight;
+    row('Payment Received', (paymentReceipt?.amount || 0).toFixed(2));
+    row('Outstanding Before', (paymentReceipt?.outstanding_before || 0).toFixed(2));
+    row('Outstanding After', (paymentReceipt?.outstanding_after || 0).toFixed(2));
+    row('Bill Total', (paymentReceipt?.total || 0).toFixed(2));
+    rule(y);
+    y += lineHeight;
+    row('BALANCE DUE', (paymentReceipt?.outstanding_after || 0).toFixed(2));
+    rule(y);
+    y += lineHeight;
+    if (paymentReceipt?.notes) {
+      const note = `Notes: ${paymentReceipt.notes}`;
+      text(CPCL_LEFT_MARGIN, y, note.slice(0, lineWidth));
+      y += lineHeight;
+    }
+
+    const height = Math.max(260, y + 60);
+    return `! 0 200 200 ${height} 1\r\nTONE ${CPCL_PRINT_TONE}\r\nSPEED ${CPCL_PRINT_SPEED}\r\nSETBOLD ${CPCL_BOLD}\r\nSETMAG ${CPCL_MAG_X} ${CPCL_MAG_Y}\r\n${commands.join('\r\n')}\r\nFORM\r\nPRINT\r\n`;
   };
 
   const handlePrintPaymentReceipt = async () => {
@@ -689,13 +770,24 @@ export default function BillsCollectionsScreen() {
     try {
       setPrinting(true);
       setPrintStatus({ type: null, message: '' });
+      if (Platform.OS === 'ios') {
+        await printReceiptLinesOnIos({
+          title: 'Payment Receipt',
+          lines: buildPaymentPrintableLines(DEFAULT_BLUETOOTH_PRINTER_PROFILE.printerNbrCharactersPerLine),
+        });
+        const printerName = await getSavedIosPrinterName();
+        if (printerName) setSelectedIosPrinterName(printerName);
+        setPrintStatus({
+          type: 'success',
+          message: printerName
+            ? `Print command sent to ${printerName}.`
+            : 'iOS print sheet opened.',
+        });
+        return;
+      }
       const devices = await loadPairedPrinters();
       if (!devices.length) {
-        throw new Error(
-          Platform.OS === 'ios'
-            ? 'No BLE printer found. Turn on the printer and make sure it supports BLE printing.'
-            : 'No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.',
-        );
+        throw new Error('No paired Bluetooth printer found. Pair the printer in phone Bluetooth settings first.');
       }
       const macAddress = await resolveBluetoothMacAddress(devices);
       if (!macAddress) {
@@ -710,11 +802,8 @@ export default function BillsCollectionsScreen() {
       const selectedDevice = devices.find((printer) => printer.macAddress === macAddress) || null;
       const printerProfile = getBluetoothPrinterProfile(selectedDevice?.deviceName);
       const useCpcl = isLikelyCpclPrinter(selectedDevice?.deviceName) && hasNativeBluetoothRawPrint();
-      if (Platform.OS === 'ios') {
-        const lines = buildPaymentPrintableLines(printerProfile.printerNbrCharactersPerLine);
-        await printReceiptLinesWithIosBlePrinter(macAddress, lines);
-      } else if (useCpcl) {
-        const payload = buildPaymentCpclPayload(Math.min(CPCL_RENDER_LINE_WIDTH, printerProfile.printerNbrCharactersPerLine));
+      if (useCpcl) {
+        const payload = buildPaymentCpclPayload(getCpclLineWidth(printerProfile), printerProfile);
         await (ThermalPrinterModule as any).printBluetoothRaw({ macAddress, payload });
       } else {
         const payload = buildPaymentEscPosPayload(printerProfile.printerNbrCharactersPerLine);
@@ -722,7 +811,7 @@ export default function BillsCollectionsScreen() {
       }
       setPrintStatus({
         type: 'success',
-        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${Platform.OS === 'ios' ? ' (BLE)' : useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
+        message: `Print command sent to Bluetooth printer${selectedDevice?.deviceName ? ` (${selectedDevice.deviceName})` : ''}${useCpcl ? ' (CPCL)' : ' (ESC/POS)'}.`,
       });
     } catch (err: any) {
       const errorMessage = err?.message || 'Failed to print payment receipt.';
@@ -1066,7 +1155,7 @@ export default function BillsCollectionsScreen() {
               <Text style={styles.modalLabel}>
                 Printer:{' '}
                 {Platform.OS === 'ios'
-                  ? selectedIosPrinterName || 'Not selected'
+                  ? selectedIosPrinterName || 'iOS print sheet'
                   : selectedPrinterMac || 'Not selected'}
               </Text>
 
@@ -1080,7 +1169,7 @@ export default function BillsCollectionsScreen() {
                   disabled={printing || loadingPrinters}
                 >
                   <Text style={styles.actionText}>
-                    Choose Printer
+                    {Platform.OS === 'ios' ? 'Choose AirPrint Printer' : 'Choose Printer'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1119,9 +1208,7 @@ export default function BillsCollectionsScreen() {
             {loadingPrinters ? (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.accent} />
-                <Text style={styles.centerText}>
-                  {Platform.OS === 'ios' ? 'Scanning Bluetooth printers...' : 'Loading paired printers...'}
-                </Text>
+                <Text style={styles.centerText}>Loading paired printers...</Text>
               </View>
             ) : pairedPrinters.length > 0 ? (
               <FlatList
@@ -1145,11 +1232,7 @@ export default function BillsCollectionsScreen() {
                 )}
               />
             ) : (
-              <Text style={styles.emptyText}>
-                {Platform.OS === 'ios'
-                  ? 'No BLE printers found.'
-                  : 'No paired Bluetooth printers found.'}
-              </Text>
+              <Text style={styles.emptyText}>No paired Bluetooth printers found.</Text>
             )}
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -1185,29 +1268,24 @@ export default function BillsCollectionsScreen() {
             <Text style={styles.modalTitle}>Return Products</Text>
             {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
             <View style={styles.returnList}>
-              {returnItems.map((item, index) => (
-                <View key={`${item.product_id}-${index}`} style={styles.returnRow}>
+              {returnItems.map((item) => (
+                <View key={item._rowKey} style={styles.returnRow}>
                   <View style={styles.returnText}>
-                    <View style={styles.returnTitleRow}>
-                      <Text style={styles.returnTitle}>{item.name}</Text>
-                      {Number(item.unit_price) === 0 ? <Text style={styles.freeTag}>FREE</Text> : null}
-                    </View>
-                    <Text style={styles.returnMeta}>Ordered: {item.quantity}</Text>
+                    <Text style={styles.returnTitle}>{item.name}</Text>
+                    <Text style={styles.returnMeta}>
+                      Ordered: {item.quantity} Â· Unit: {item.unit_price.toFixed(2)} LKR
+                    </Text>
                   </View>
                   <TextInput
                     placeholder="0"
                     placeholderTextColor={colors.textMuted}
                     style={styles.returnInput}
                     keyboardType="numeric"
-                    value={(() => {
-                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
-                      const qty = returnQuantities[lineKey] ?? 0;
-                      return qty > 0 ? String(qty) : '';
-                    })()}
+                    value={returnQuantities[item._rowKey] ? String(returnQuantities[item._rowKey]) : ''}
                     onChangeText={(value) => {
-                      const qty = Number(value || 0);
-                      const lineKey = `${item.product_id}-${String((item as any).unit_price ?? 'na')}-${index}`;
-                      setReturnQuantities((prev) => ({ ...prev, [lineKey]: qty }));
+                      const trimmed = value.trim();
+                      const qty = trimmed === '' ? 0 : Number(trimmed);
+                      setReturnQuantities((prev) => ({ ...prev, [item._rowKey]: qty }));
                     }}
                   />
                 </View>
@@ -1458,6 +1536,9 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 20,
     borderWidth: 1,
     borderColor: colors.border,
+    width: '100%',
+    maxWidth: 420,
+    alignSelf: 'center',
     maxHeight: '92%',
   },
   receiptScroll: {
@@ -1513,12 +1594,13 @@ const makeStyles = (colors: ThemeColors) =>
   },
   receiptLabel: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     textTransform: 'uppercase',
     fontWeight: '700',
   },
   receiptValue: {
     color: colors.text,
+    fontSize: 13,
     fontWeight: '600',
     textAlign: 'right',
     flexShrink: 1,
@@ -1541,9 +1623,9 @@ const makeStyles = (colors: ThemeColors) =>
     borderBottomColor: colors.border,
   },
   receiptCell: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    fontSize: 11,
+    paddingHorizontal: 7,
+    paddingVertical: 7,
+    fontSize: 12,
     color: colors.text,
   },
   receiptCellItem: {
@@ -1566,12 +1648,13 @@ const makeStyles = (colors: ThemeColors) =>
   },
   receiptNotesLabel: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     textTransform: 'uppercase',
     fontWeight: '700',
   },
   receiptNotesValue: {
     color: colors.text,
+    fontSize: 13,
     fontWeight: '600',
   },
   receiptTotalRow: {
@@ -1607,7 +1690,7 @@ const makeStyles = (colors: ThemeColors) =>
   receiptSignatureLabel: {
     textAlign: 'center',
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
   },
   receiptFooter: {
     marginTop: 8,
@@ -1616,7 +1699,7 @@ const makeStyles = (colors: ThemeColors) =>
   },
   receiptFooterText: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 12,
   },
   modalTitle: {
     color: colors.text,
@@ -1668,25 +1751,9 @@ const makeStyles = (colors: ThemeColors) =>
   returnText: {
     flex: 1,
   },
-  returnTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
   returnTitle: {
     color: colors.text,
     fontWeight: '600',
-  },
-  freeTag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: colors.success,
-    color: colors.background,
-    fontWeight: '700',
-    fontSize: 12,
-    overflow: 'hidden',
   },
   returnMeta: {
     color: colors.textMuted,

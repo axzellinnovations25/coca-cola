@@ -1,5 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../../../utils/api';
+
+const parseDate = (value: string | number | Date | null | undefined) => {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'number') {
+    const milliseconds = value < 1e12 ? value * 1000 : value;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const numeric = Number(raw);
+  if (!Number.isNaN(numeric)) {
+    const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
+    const date = new Date(milliseconds);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  let normalized = raw.includes(' ') && !raw.includes('T') ? raw.replace(' ', 'T') : raw;
+  normalized = normalized.replace(/(\.\d{3})\d+/, '$1');
+  if (/[+-]\d{2}$/.test(normalized)) {
+    normalized = `${normalized}:00`;
+  } else if (/[+-]\d{4}$/.test(normalized)) {
+    normalized = normalized.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+  }
+
+  let date = new Date(normalized);
+  if (!Number.isNaN(date.getTime())) return date;
+
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:?\d{2})?$/.test(normalized)) {
+    date = new Date(`${normalized}Z`);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  const noFraction = normalized.replace(/\.\d+/, '');
+  if (noFraction !== normalized) {
+    date = new Date(noFraction);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return null;
+};
 
 interface DashboardStats {
   total_orders: number;
@@ -38,25 +82,35 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [recentCollections, setRecentCollections] = useState<RecentCollection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const lastFetchedAt = useRef(0);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
+      setError('');
 
-      const [ordersData, collectionsData, shopsData] = await Promise.all([
+      const [ordersResult, collectionsResult, shopsResult] = await Promise.allSettled([
         apiFetch('/api/marudham/orders'),
         apiFetch('/api/marudham/collections/representative'),
         apiFetch('/api/marudham/shops/assigned')
       ]);
 
+      const failedResults = [ordersResult, collectionsResult, shopsResult]
+        .filter(result => result.status === 'rejected');
+      if (failedResults.length === 3) {
+        const firstFailure = failedResults[0] as PromiseRejectedResult;
+        throw firstFailure.reason;
+      }
+
+      const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : { orders: [] };
+      const collectionsData = collectionsResult.status === 'fulfilled' ? collectionsResult.value : { collections: [] };
+      const shopsData = shopsResult.status === 'fulfilled' ? shopsResult.value : { shops: [] };
       const orders = ordersData.orders || [];
       const collections = collectionsData.collections || [];
       const shops = shopsData.shops || [];
+      const today = new Date().toDateString();
 
       const dashboardStats: DashboardStats = {
         total_orders: orders.length,
@@ -68,19 +122,15 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         outstanding_amount: shops.reduce((sum: number, s: any) => sum + Number(s.current_outstanding || 0), 0),
         shop_count: shops.length,
         today_orders: orders.filter((o: any) => {
-          const orderDate = new Date(o.created_at).toDateString();
-          const today = new Date().toDateString();
-          return orderDate === today;
+          return parseDate(o.created_at)?.toDateString() === today;
         }).length,
         today_collections: collections.filter((c: any) => {
-          const collectionDate = new Date(c.payment_date).toDateString();
-          const today = new Date().toDateString();
-          return collectionDate === today;
+          return parseDate(c.payment_date)?.toDateString() === today;
         }).length
       };
 
-      const recentOrdersData = orders
-        .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      const recentOrdersData = [...orders]
+        .sort((a: any, b: any) => (parseDate(b.created_at)?.getTime() || 0) - (parseDate(a.created_at)?.getTime() || 0))
         .slice(0, 5)
         .map((order: any) => ({
           id: order.id,
@@ -90,12 +140,12 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           created_at: order.created_at
         }));
 
-      const recentCollectionsData = collections
-        .sort((a: any, b: any) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())
+      const recentCollectionsData = [...collections]
+        .sort((a: any, b: any) => (parseDate(b.payment_date)?.getTime() || 0) - (parseDate(a.payment_date)?.getTime() || 0))
         .slice(0, 5)
         .map((collection: any) => ({
           payment_id: collection.payment_id,
-          shop_name: collection.shop.name,
+          shop_name: collection.shop?.name || collection.shop_name || 'Unknown shop',
           amount: Number(collection.payment_amount),
           payment_date: collection.payment_date
         }));
@@ -103,12 +153,37 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
       setStats(dashboardStats);
       setRecentOrders(recentOrdersData);
       setRecentCollections(recentCollectionsData);
-
+      lastFetchedAt.current = Date.now();
     } catch (err: any) {
-      setError(err.message);
+      setError(err?.message || 'Failed to load dashboard');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
+  useEffect(() => {
+    const refreshIfStale = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastFetchedAt.current > 30_000) {
+        fetchDashboardData(true);
+      }
+    };
+
+    window.addEventListener('focus', refreshIfStale);
+    document.addEventListener('visibilitychange', refreshIfStale);
+    return () => {
+      window.removeEventListener('focus', refreshIfStale);
+      document.removeEventListener('visibilitychange', refreshIfStale);
+    };
+  }, [fetchDashboardData]);
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchDashboardData(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -156,6 +231,13 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
         </div>
         <p className="text-sm font-semibold text-gray-900">Error loading dashboard</p>
         <p className="text-sm text-gray-500">{error}</p>
+        <button
+          type="button"
+          onClick={() => fetchDashboardData()}
+          className="px-4 py-2 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -175,9 +257,19 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             <p className="text-sm text-gray-500">Here's what's happening with your sales today</p>
           </div>
         </div>
-        <div className="hidden md:flex flex-col items-end gap-0.5">
-          <span className="text-2xl font-bold text-gray-900">{stats?.today_orders || 0}</span>
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Orders Today</span>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <div className="hidden md:flex flex-col items-end gap-0.5">
+            <span className="text-2xl font-bold text-gray-900">{stats?.today_orders || 0}</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">Orders Today</span>
+          </div>
         </div>
       </div>
 
@@ -363,7 +455,7 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
                     <p className="text-xs text-gray-500">{formatCurrency(collection.amount)}</p>
                   </div>
                   <p className="text-xs text-gray-400 shrink-0 ml-2">
-                    {new Date(collection.payment_date).toLocaleDateString()}
+                    {parseDate(collection.payment_date)?.toLocaleDateString() || '--'}
                   </p>
                 </div>
               ))
@@ -387,7 +479,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
           <span className="text-sm font-semibold text-gray-900">Quick Actions</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
-          <button className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left">
+          <button
+            className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left"
+            onClick={() => onNavigate?.('Create Order')}
+          >
             <div className="w-10 h-10 bg-violet-100 rounded-xl flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-violet-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -399,7 +494,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             </div>
           </button>
 
-          <button className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left">
+          <button
+            className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left"
+            onClick={() => onNavigate?.('Bills & Collections')}
+          >
             <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
@@ -411,7 +509,10 @@ export default function Dashboard({ onNavigate }: DashboardProps) {
             </div>
           </button>
 
-          <button className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left">
+          <button
+            className="flex items-center gap-3 p-4 bg-gray-50 hover:bg-violet-50 rounded-xl border border-gray-100 transition-colors text-left"
+            onClick={() => onNavigate?.('My Orders')}
+          >
             <div className="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />

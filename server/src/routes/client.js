@@ -3,6 +3,7 @@ const router = express.Router({ mergeParams: true });
 const userController = require('../controllers/userController');
 const { authenticateJWT } = require('../middleware/auth');
 const productController = require('../controllers/productController');
+const reportController = require('../controllers/reportController');
 
 function requireAdminOrSuperadmin(req, res, next) {
   if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
@@ -19,13 +20,13 @@ function requireSalesRep(req, res, next) {
 }
 
 // POST /api/:client/users (protected)
-router.post('/users', authenticateJWT, userController.createUser);
+router.post('/users', authenticateJWT, requireAdminOrSuperadmin, userController.createUser);
 // GET /api/:client/users (protected)
 router.get('/users', authenticateJWT, userController.listUsers);
 // PUT /api/:client/users/:id (protected)
-router.put('/users/:id', authenticateJWT, userController.editUser);
+router.put('/users/:id', authenticateJWT, requireAdminOrSuperadmin, userController.editUser);
 // DELETE /api/:client/users/:id (protected)
-router.delete('/users/:id', authenticateJWT, userController.deleteUser);
+router.delete('/users/:id', authenticateJWT, requireAdminOrSuperadmin, userController.deleteUser);
 // GET /api/:client/logs (protected)
 router.get('/logs', authenticateJWT, userController.getLogs);
 // POST /api/:client/login (public)
@@ -85,6 +86,8 @@ router.get('/orders/:order_id/payments', authenticateJWT, requireAdminOrSuperadm
 router.put('/orders/:order_id/approve', authenticateJWT, requireAdminOrSuperadmin, productController.approveOrder);
 router.put('/orders/:order_id/reject', authenticateJWT, requireAdminOrSuperadmin, productController.rejectOrder);
 router.put('/orders/:order_id/admin', authenticateJWT, requireAdminOrSuperadmin, productController.updateOrderAsAdmin);
+router.post('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.createOutOfDate);
+router.get('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderOutOfDateHistory);
 
 // Sales rep specific order details (must come after admin routes)
 router.get('/orders/:order_id/details', authenticateJWT, requireSalesRep, productController.getOrderDetailsForSalesRep);
@@ -106,6 +109,7 @@ router.post('/payments/:payment_id/send-notification', authenticateJWT, requireS
 
 router.get('/bills/representative', authenticateJWT, requireSalesRep, productController.billsRepresentative);
 router.post('/bills/:id/payment', authenticateJWT, requireSalesRep, productController.recordPayment);
+router.post('/bills/:id/payment/admin', authenticateJWT, requireAdminOrSuperadmin, productController.recordPaymentAsAdmin);
 router.post('/bills/:id/return', authenticateJWT, requireSalesRep, productController.recordReturn);
 
 // Representative collections routes
@@ -114,6 +118,9 @@ router.get('/collections/representative/stats', authenticateJWT, requireSalesRep
 
 // Sales representatives statistics (Admin/Superadmin only)
 router.get('/sales-representatives/stats', authenticateJWT, requireAdminOrSuperadmin, productController.getSalesRepresentativesWithStats);
+
+// Reports (Admin/Superadmin only)
+router.get('/reports/repwise-shop-limits.pdf', authenticateJWT, requireAdminOrSuperadmin, reportController.downloadRepwiseShopLimitsPdf);
 
 // Admin collections (Admin/Superadmin only)
 router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);

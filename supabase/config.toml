@@ -1,0 +1,4 @@
+project_id = "coca-cola"
+
+[functions.admin-rep-daily-summary]
+verify_jwt = false

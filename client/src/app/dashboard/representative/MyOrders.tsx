@@ -18,6 +18,10 @@ interface OrderItem {
   total: number;
 }
 
+interface EditOrderItem extends OrderItem {
+  line_key: string;
+}
+
 interface Product {
   id: string;
   name: string;
@@ -60,11 +64,10 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
   const [showPendingOrders, setShowPendingOrders] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [sendingSMS, setSendingSMS] = useState(false);
-  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
   const [messageStatus, setMessageStatus] = useState<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   const [smsSent, setSmsSent] = useState(false);
   const [editOrder, setEditOrder] = useState<DetailedOrder | null>(null);
-  const [editItems, setEditItems] = useState<OrderItem[]>([]);
+  const [editItems, setEditItems] = useState<EditOrderItem[]>([]);
   const [editNotes, setEditNotes] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
@@ -205,7 +208,10 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
       }
       setEditOrder(details);
       setEditNotes(details.notes || '');
-      setEditItems(details.items ? details.items.map(item => ({ ...item })) : []);
+      setEditItems(details.items ? details.items.map((item, index) => ({
+        ...item,
+        line_key: `${item.product_id}-${item.unit_price}-${index}`
+      })) : []);
     } catch (err: any) {
       setEditError(err.message || 'Failed to load order for editing.');
     } finally {
@@ -258,10 +264,12 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
     if (!product) return;
 
     setEditItems(prev => {
-      const existing = prev.find(item => item.product_id === product.id);
+      const existing = prev.find(
+        item => item.product_id === product.id && item.unit_price === product.unit_price
+      );
       if (existing) {
         return prev.map(item =>
-          item.product_id === product.id
+          item.line_key === existing.line_key
             ? {
                 ...item,
                 quantity: item.quantity + newProductQty,
@@ -277,7 +285,8 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
           name: product.name,
           unit_price: product.unit_price,
           quantity: newProductQty,
-          total: product.unit_price * newProductQty
+          total: product.unit_price * newProductQty,
+          line_key: `${product.id}-${product.unit_price}-${Date.now()}`
         }
       ];
     });
@@ -641,39 +650,6 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
       });
     } finally {
       setSendingSMS(false);
-    }
-  };
-
-  // Function to send WhatsApp
-  const handleSendWhatsApp = async () => {
-    if (!printReceipt) return;
-
-    setSendingWhatsApp(true);
-    setMessageStatus({ type: null, message: '' });
-
-    try {
-      const response = await apiFetch(`/api/marudham/orders/${printReceipt.id}/send-whatsapp`, {
-        method: 'POST'
-      });
-
-      if (response.success) {
-        setMessageStatus({
-          type: 'success',
-          message: 'WhatsApp message sent successfully to shop owner!'
-        });
-      } else {
-        setMessageStatus({
-          type: 'error',
-          message: response.error || 'Failed to send WhatsApp message'
-        });
-      }
-    } catch (error: any) {
-      setMessageStatus({
-        type: 'error',
-        message: error.message || 'Failed to send WhatsApp message'
-      });
-    } finally {
-      setSendingWhatsApp(false);
     }
   };
 
@@ -1061,10 +1037,12 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
                 </div>
                 <div className="space-y-2">
                   {editItems.map((item) => (
-                    <div key={item.product_id} className="flex items-center gap-3 border border-gray-100 rounded-lg p-3">
+                    <div key={item.line_key} className="flex items-center gap-3 border border-gray-100 rounded-lg p-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.unit_price.toFixed(2)} LKR/unit</p>
+                        <p className="text-xs text-gray-500">
+                          {item.unit_price === 0 ? 'Free' : `${item.unit_price.toFixed(2)} LKR/unit`}
+                        </p>
                       </div>
                       <input
                         type="number"
@@ -1072,13 +1050,13 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
                         value={item.quantity}
                         onChange={(e) => {
                           const qty = Number(e.target.value);
-                          setEditItems(prev => prev.map(i => i.product_id === item.product_id ? { ...i, quantity: qty, total: i.unit_price * qty } : i));
+                          setEditItems(prev => prev.map(i => i.line_key === item.line_key ? { ...i, quantity: qty, total: i.unit_price * qty } : i));
                         }}
                         className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm text-center"
                       />
                       <button
                         className="px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors bg-red-100 hover:bg-red-200 text-red-700"
-                        onClick={() => setEditItems(prev => prev.filter(i => i.product_id !== item.product_id))}
+                        onClick={() => setEditItems(prev => prev.filter(i => i.line_key !== item.line_key))}
                       >
                         Remove
                       </button>
@@ -1213,7 +1191,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
             {/* Receipt Content */}
             <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
               <div className="text-center mb-4">
-                <p className="text-base font-bold text-gray-900">MotionRep</p>
+                <p className="text-base font-bold text-gray-900">S.B Distribution</p>
                 <p className="text-xs text-gray-500 mt-0.5">Sales Order Receipt</p>
                 <span className="inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
                   APPROVED — READY FOR DELIVERY
@@ -1355,7 +1333,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
                 <button
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-100 hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed text-blue-700 font-semibold text-sm transition-colors"
                   onClick={handleSendSMS}
-                  disabled={sendingSMS || sendingWhatsApp || !printReceipt.shop?.phone || smsSent}
+                  disabled={sendingSMS || !printReceipt.shop?.phone || smsSent}
                 >
                   {sendingSMS ? (
                     <><div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />Sending...</>
@@ -1365,24 +1343,11 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
                     <>Send SMS</>
                   )}
                 </button>
-                {smsSent && (
-                  <button
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-green-100 hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed text-green-700 font-semibold text-sm transition-colors"
-                    onClick={handleSendWhatsApp}
-                    disabled={sendingSMS || sendingWhatsApp || !printReceipt.shop?.phone}
-                  >
-                    {sendingWhatsApp ? (
-                      <><div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />Sending...</>
-                    ) : (
-                      <>Send WhatsApp</>
-                    )}
-                  </button>
-                )}
               </div>
               <p className="text-xs text-gray-400 mt-2 text-center">
                 {printReceipt.shop?.phone
                   ? smsSent
-                    ? 'SMS sent! You can now send a WhatsApp message if needed.'
+                    ? 'SMS sent successfully!'
                     : 'Send SMS to notify shop owner about this order'
                   : 'Phone number not available — please update shop details'}
               </p>

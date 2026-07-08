@@ -47,8 +47,10 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
-app.use('/api/:client', clientRouter);
 app.use('/api/session', sessionRouter);
+// Important: mount fixed routes before the dynamic `:client` matcher,
+// otherwise `/api/session/*` is captured by `/api/:client/*`.
+app.use('/api/:client', clientRouter);
 
 app.get('/privacy-policy', (req, res) => {
   res.type('html').send(`<!doctype html>

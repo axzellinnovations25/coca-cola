@@ -104,7 +104,7 @@ export default function DashboardPage() {
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const openEditModal = (user: User) => {
-    setEditForm({ ...user });
+    setEditForm({ ...user, password: '' });
     setShowEditModal(true);
     setTimeout(() => editInputRef.current?.focus(), 100);
   };
@@ -114,9 +114,11 @@ export default function DashboardPage() {
     setEditLoading(true);
     setEditError('');
     try {
+      const payload = { ...editForm };
+      if (!payload.password) delete payload.password;
       await apiFetch(`/api/marudham/users/${editForm.id}`, {
         method: 'PUT',
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payload),
       });
       showToast('success', 'User updated successfully!');
       setShowEditModal(false);
@@ -622,6 +624,16 @@ export default function DashboardPage() {
                 <option value="admin">Admin</option>
                 <option value="representative">Representative</option>
               </select>
+              {user?.role === 'superadmin' && (
+                <input
+                  type="password"
+                  placeholder="New Password (optional)"
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-violet-300 text-gray-700 bg-gray-50"
+                  value={editForm.password ?? ''}
+                  onChange={e => setEditForm((f: any) => ({ ...f, password: e.target.value }))}
+                  minLength={8}
+                />
+              )}
               {editError && <div className="text-red-500 text-sm text-center">{editError}</div>}
               <button
                 type="submit"

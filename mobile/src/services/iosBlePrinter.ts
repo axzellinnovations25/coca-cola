@@ -201,6 +201,6 @@ export const printTextWithIosBlePrinter = async (deviceId: string, text: string)
 };
 
 export const printReceiptLinesWithIosBlePrinter = async (deviceId: string, lines: string[]) => {
-  const payload = `\x1b@\n${lines.join('\n')}\n\n\n`;
+  const payload = `\x1b@\n${lines.join('\n')}\n\n`;
   await printTextWithIosBlePrinter(deviceId, payload);
 };

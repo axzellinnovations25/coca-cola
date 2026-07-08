@@ -56,9 +56,20 @@ exports.listUsers = async (req, res) => {
 exports.editUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { first_name, last_name, email, nic_no, phone_no, role } = req.body;
+    const { first_name, last_name, email, nic_no, phone_no, role, password } = req.body;
     const editorId = req.user && req.user.id;
-    const updatedUser = await userService.editUserService({ id, first_name, last_name, email, nic_no, phone_no, role, edited_by: editorId });
+    const updatedUser = await userService.editUserService({
+      id,
+      first_name,
+      last_name,
+      email,
+      nic_no,
+      phone_no,
+      role,
+      password,
+      requestingUser: req.user,
+      edited_by: editorId,
+    });
     res.json({ user: updatedUser });
   } catch (error) {
     res.status(400).json({ error: error.message });
