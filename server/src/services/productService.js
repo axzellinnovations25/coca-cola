@@ -2270,50 +2270,80 @@ async function getShopDetails(shop_id) {
 }
 
 async function recordPurchase({ items, unit_cost, supplier, notes, user_id }) {
+  // Aggregate quantities per product so the DB work is a fixed number of
+  // queries regardless of how many product rows were submitted.
+  const qtyByProduct = new Map();
+  for (const { product_id, qty } of items) {
+    qtyByProduct.set(product_id, (qtyByProduct.get(product_id) || 0) + qty);
+  }
+  const productIds = [...qtyByProduct.keys()];
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    for (const item of items) {
-      const { product_id, qty } = item;
+    // 1. Lock and fetch every affected product in a single round-trip.
+    const productRes = await client.query(
+      'SELECT id, name, stock FROM products WHERE id = ANY($1::uuid[]) FOR UPDATE',
+      [productIds]
+    );
 
-      const productRes = await client.query(
-        'SELECT id, name, stock FROM products WHERE id = $1 FOR UPDATE',
-        [product_id]
-      );
-      if (productRes.rows.length === 0) throw new Error(`Product ${product_id} not found`);
-
-      const product = productRes.rows[0];
-      const previousStock = Number(product.stock);
-      const newStock = previousStock + qty;
-
-      await client.query(
-        'UPDATE products SET stock = $1, updated_at = NOW() WHERE id = $2',
-        [newStock, product_id]
-      );
-
-      const totalCost = unit_cost != null ? unit_cost * qty : null;
-
-      const logId = randomUUID();
-      await client.query(
-        'INSERT INTO product_logs (id, product_id, user_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, NOW())',
-        [
-          logId,
-          product_id,
-          user_id,
-          'purchase',
-          JSON.stringify({
-            purchase_quantity: qty,
-            previous_stock: previousStock,
-            new_stock: newStock,
-            unit_cost: unit_cost ?? null,
-            total_cost: totalCost,
-            supplier: supplier || null,
-            notes: notes || null,
-          }),
-        ]
-      );
+    const productById = new Map(productRes.rows.map((row) => [row.id, row]));
+    const missing = productIds.filter((id) => !productById.has(id));
+    if (missing.length > 0) {
+      throw new Error(`Product ${missing[0]} not found`);
     }
+
+    // 2. Apply all stock increments in a single UPDATE.
+    const updateValues = [];
+    const updateParams = [];
+    productIds.forEach((id, index) => {
+      const previousStock = Number(productById.get(id).stock);
+      const newStock = previousStock + qtyByProduct.get(id);
+      updateValues.push(`($${index * 2 + 1}::uuid, $${index * 2 + 2}::numeric)`);
+      updateParams.push(id, newStock);
+    });
+    await client.query(
+      `UPDATE products AS p
+         SET stock = v.new_stock, updated_at = NOW()
+         FROM (VALUES ${updateValues.join(', ')}) AS v(id, new_stock)
+        WHERE p.id = v.id`,
+      updateParams
+    );
+
+    // 3. Insert every purchase log in a single INSERT.
+    const logValues = [];
+    const logParams = [];
+    productIds.forEach((id, index) => {
+      const qty = qtyByProduct.get(id);
+      const previousStock = Number(productById.get(id).stock);
+      const newStock = previousStock + qty;
+      const totalCost = unit_cost != null ? unit_cost * qty : null;
+      const base = index * 5;
+      logValues.push(
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, NOW())`
+      );
+      logParams.push(
+        randomUUID(),
+        id,
+        user_id,
+        'purchase',
+        JSON.stringify({
+          purchase_quantity: qty,
+          previous_stock: previousStock,
+          new_stock: newStock,
+          unit_cost: unit_cost ?? null,
+          total_cost: totalCost,
+          supplier: supplier || null,
+          notes: notes || null,
+        })
+      );
+    });
+    await client.query(
+      `INSERT INTO product_logs (id, product_id, user_id, action, details, created_at)
+       VALUES ${logValues.join(', ')}`,
+      logParams
+    );
 
     await client.query('COMMIT');
   } catch (error) {
