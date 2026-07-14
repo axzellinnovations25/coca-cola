@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "migrate:order-dedup": "node run-migration-006.js",
     "cleanup-sessions": "node cleanup-sessions.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -1,6 +1,6 @@
 const pool = require('../db');
 const messagingService = require('./messagingService');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 
 async function logProductAction({ product_id, user_id, action, details, client }) {
   const logId = randomUUID();
@@ -303,58 +303,61 @@ async function listOrderProducts() {
   return result.rows;
 }
 
-async function createOrder({ shop_id, sales_rep_id, notes, items }) {
-  const orderId = randomUUID();
-  const total = items.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
+function buildOrderFingerprint({ shop_id, sales_rep_id, notes, items }) {
+  const canonicalItems = items
+    .map(item => ({
+      product_id: String(item.product_id),
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price),
+    }))
+    .sort((a, b) => (
+      a.product_id.localeCompare(b.product_id)
+      || a.unit_price - b.unit_price
+      || a.quantity - b.quantity
+    ));
 
-  // Credit validation (read-only, outside transaction)
-  const shopRes = await pool.query(`
-    SELECT max_bill_amount, max_active_bills,
-      COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric)
-          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
-          - (COALESCE((
-              SELECT SUM(odi.line_total::numeric)
-              FROM out_of_date_items odi
-              JOIN out_of_date od ON od.id = odi.out_of_date_id
-              WHERE od.order_id = o.id
-            ), 0) * 0.4)
-        WHEN o.status = 'pending' THEN o.total::numeric
-        ELSE 0
-      END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2
-       WHERE o2.shop_id = s.id
-       AND (
-         (o2.status = 'approved' AND (
-            (o2.total::numeric)
-            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
-            - (COALESCE((
-                SELECT SUM(odi.line_total::numeric)
-                FROM out_of_date_items odi
-                JOIN out_of_date od ON od.id = odi.out_of_date_id
-                WHERE od.order_id = o2.id
-              ), 0) * 0.4)
-          ) > 0)
-         OR o2.status = 'pending'
-       )) as active_bills
-    FROM shops s
-    LEFT JOIN orders o ON o.shop_id = s.id
-    WHERE s.id = $1
-    GROUP BY s.id, s.max_bill_amount, s.max_active_bills
-  `, [shop_id]);
-  if (shopRes.rows.length === 0) throw new Error('Shop not found');
-  const shop = shopRes.rows[0];
-  const availableCredit = Number(shop.max_bill_amount) - Number(shop.current_outstanding);
-  if (total > availableCredit) {
-    throw new Error(`Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`);
-  }
-  if (Number(shop.active_bills) >= Number(shop.max_active_bills)) {
-    throw new Error(`Shop has reached the maximum number of active bills (${shop.max_active_bills}).`);
-  }
+  return createHash('sha256')
+    .update(JSON.stringify({
+      shop_id: String(shop_id),
+      sales_rep_id: String(sales_rep_id),
+      notes: notes || '',
+      items: canonicalItems,
+    }))
+    .digest('hex');
+}
+
+async function createOrder({ shop_id, sales_rep_id, notes, items }) {
+  if (!shop_id || !sales_rep_id) throw new Error('Shop and sales representative are required');
+  if (!Array.isArray(items) || items.length === 0) throw new Error('At least one order item is required');
+
+  const normalizedItems = items.map(item => {
+    const quantity = Number(item.quantity);
+    const unitPrice = Number(item.unit_price);
+    if (!item.product_id || !Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error('Each order item must have a product and a positive whole-number quantity');
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new Error('Each order item must have a valid unit price');
+    }
+    return {
+      product_id: String(item.product_id),
+      quantity,
+      unit_price: unitPrice,
+    };
+  });
+
+  const orderId = randomUUID();
+  const total = normalizedItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
+  const requestFingerprint = buildOrderFingerprint({
+    shop_id,
+    sales_rep_id,
+    notes,
+    items: normalizedItems,
+  });
 
   // Aggregate total quantity needed per product (handles free-item duplicates)
   const productQuantities = new Map();
-  for (const item of items) {
+  for (const item of normalizedItems) {
     const existing = productQuantities.get(item.product_id) || 0;
     productQuantities.set(item.product_id, existing + Number(item.quantity));
   }
@@ -363,59 +366,153 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
   try {
     await client.query('BEGIN');
 
-    // Reserve stock for each product (locked per-row)
+    // Serialize order creation per shop. This makes credit checks consistent and
+    // ensures an APK retry waits for the original request before checking for it.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`create-order:${shop_id}`]);
+
+    const duplicateRes = await client.query(
+      `SELECT *
+       FROM orders
+       WHERE shop_id = $1
+         AND sales_rep_id = $2
+         AND request_fingerprint = $3
+         AND created_at >= NOW() - INTERVAL '5 minutes'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [shop_id, sales_rep_id, requestFingerprint]
+    );
+    if (duplicateRes.rows.length > 0) {
+      await client.query('COMMIT');
+      return duplicateRes.rows[0];
+    }
+
+    // Perform credit validation while holding the per-shop transaction lock.
+    const shopRes = await client.query(`
+      SELECT max_bill_amount, max_active_bills,
+        COALESCE(SUM(CASE
+          WHEN o.status = 'approved' THEN (o.total::numeric)
+            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+            - (COALESCE((
+                SELECT SUM(odi.line_total::numeric)
+                FROM out_of_date_items odi
+                JOIN out_of_date od ON od.id = odi.out_of_date_id
+                WHERE od.order_id = o.id
+              ), 0) * 0.4)
+          WHEN o.status = 'pending' THEN o.total::numeric
+          ELSE 0
+        END), 0) as current_outstanding,
+        (SELECT COUNT(*) FROM orders o2
+         WHERE o2.shop_id = s.id
+         AND (
+           (o2.status = 'approved' AND (
+              (o2.total::numeric)
+              - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
+              - (COALESCE((
+                  SELECT SUM(odi.line_total::numeric)
+                  FROM out_of_date_items odi
+                  JOIN out_of_date od ON od.id = odi.out_of_date_id
+                  WHERE od.order_id = o2.id
+                ), 0) * 0.4)
+            ) > 0)
+           OR o2.status = 'pending'
+         )) as active_bills
+      FROM shops s
+      LEFT JOIN orders o ON o.shop_id = s.id
+      WHERE s.id = $1
+      GROUP BY s.id, s.max_bill_amount, s.max_active_bills
+    `, [shop_id]);
+    if (shopRes.rows.length === 0) throw new Error('Shop not found');
+    const shop = shopRes.rows[0];
+    const availableCredit = Number(shop.max_bill_amount) - Number(shop.current_outstanding);
+    if (total > availableCredit) {
+      throw new Error(`Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`);
+    }
+    if (Number(shop.active_bills) >= Number(shop.max_active_bills)) {
+      throw new Error(`Shop has reached the maximum number of active bills (${shop.max_active_bills}).`);
+    }
+
+    const productIds = Array.from(productQuantities.keys()).sort();
+    const stockRes = await client.query(
+      `SELECT id, stock, reserved_stock, name
+       FROM products
+       WHERE id = ANY($1::text[])
+       ORDER BY id
+       FOR UPDATE`,
+      [productIds]
+    );
+    if (stockRes.rows.length !== productIds.length) throw new Error('Product not found');
+
+    const productsById = new Map(stockRes.rows.map(product => [String(product.id), product]));
     for (const [productId, totalQty] of productQuantities) {
-      const stockRes = await client.query(
-        'SELECT stock, reserved_stock, name FROM products WHERE id = $1 FOR UPDATE',
-        [productId]
-      );
-      if (stockRes.rows.length === 0) throw new Error('Product not found');
-      const { stock, reserved_stock, name } = stockRes.rows[0];
+      const product = productsById.get(productId);
+      if (!product) throw new Error('Product not found');
+      const { stock, reserved_stock, name } = product;
       const available = Number(stock) - Number(reserved_stock);
       if (totalQty > available) {
         throw new Error(`Insufficient stock for "${name}". Available: ${available}, Requested: ${totalQty}`);
       }
-      await client.query(
-        'UPDATE products SET reserved_stock = reserved_stock + $1 WHERE id = $2',
-        [totalQty, productId]
-      );
     }
+
+    const reservationRows = Array.from(productQuantities, ([product_id, quantity]) => ({
+      product_id,
+      quantity,
+    }));
+    await client.query(
+      `UPDATE products AS p
+       SET reserved_stock = p.reserved_stock + reservation.quantity
+       FROM jsonb_to_recordset($1::jsonb) AS reservation(product_id text, quantity integer)
+       WHERE p.id = reservation.product_id`,
+      [JSON.stringify(reservationRows)]
+    );
 
     // Create order and items
     const orderRes = await client.query(
-      `INSERT INTO orders (id, shop_id, sales_rep_id, notes, total, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', now()) RETURNING *`,
-      [orderId, shop_id, sales_rep_id, notes, total]
+      `INSERT INTO orders (id, shop_id, sales_rep_id, notes, total, status, created_at, request_fingerprint)
+       VALUES ($1, $2, $3, $4, $5, 'pending', NOW(), $6) RETURNING *`,
+      [orderId, shop_id, sales_rep_id, notes, total, requestFingerprint]
     );
     const order = orderRes.rows[0];
 
-    for (const item of items) {
-      await client.query(
-        `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [randomUUID(), order.id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
-      );
-    }
+    const orderItemRows = normalizedItems.map(item => ({
+      id: randomUUID(),
+      product_id: item.product_id,
+      unit_price: item.unit_price,
+      quantity: item.quantity,
+      total: item.unit_price * item.quantity,
+    }));
+    await client.query(
+      `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
+       SELECT item.id, $2, item.product_id, item.unit_price, item.quantity, item.total
+       FROM jsonb_to_recordset($1::jsonb) AS item(
+         id text,
+         product_id text,
+         unit_price numeric,
+         quantity integer,
+         total numeric
+       )`,
+      [JSON.stringify(orderItemRows), order.id]
+    );
 
-    await client.query('COMMIT');
-
-    await logOrderAction({
-      order_id: order.id,
-      sales_rep_id,
-      action: 'create',
-      details: {
-        shop_id,
-        total,
-        notes,
-        status: 'pending',
-        items: items.map(item => ({
+    const logDetails = {
+      shop_id,
+      total,
+      notes,
+      status: 'pending',
+      items: normalizedItems.map(item => ({
           product_id: item.product_id,
+          product_name: productsById.get(item.product_id)?.name || 'Unknown Product',
           unit_price: item.unit_price,
           quantity: item.quantity,
           total: item.unit_price * item.quantity
-        }))
-      }
-    });
+      })),
+    };
+    await client.query(
+      `INSERT INTO order_logs (order_id, sales_rep_id, action, details, created_at)
+       VALUES ($1, $2, 'create', $3, NOW())`,
+      [order.id, sales_rep_id, JSON.stringify(logDetails)]
+    );
+
+    await client.query('COMMIT');
 
     return order;
   } catch (error) {
