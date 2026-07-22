@@ -62,6 +62,7 @@ interface BluetoothPrinterDevice {
 
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
+const CASE_SIZE = 12;
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const RECEIPT_LINE_WIDTH = 42;
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
@@ -247,6 +248,7 @@ export default function CreateOrderScreen() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState('1');
   const [addAsFree, setAddAsFree] = useState(false);
+  const [orderByCase, setOrderByCase] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showShopPicker, setShowShopPicker] = useState(false);
 
@@ -370,9 +372,31 @@ export default function CreateOrderScreen() {
 
   const addItem = (andNext = false) => {
     if (!selectedProduct) return;
-    const qty = Math.max(1, Number(quantity));
+    const enteredQty = Math.max(1, Number(quantity));
+    const requestedQty = orderByCase ? enteredQty * CASE_SIZE : enteredQty;
+
+    const stock = Number(selectedProduct.available_stock) || 0;
+    const existing = orderItems.find((i) => i.product_id === selectedProduct.id);
+    const alreadyInOrder = existing ? existing.quantity + existing.free_quantity : 0;
+    const remainingStock = stock - alreadyInOrder;
+
+    if (remainingStock <= 0) {
+      Alert.alert(
+        'Out of Stock',
+        `${selectedProduct.name} has no more available stock${alreadyInOrder > 0 ? ` (${alreadyInOrder} already in this order)` : ''}.`,
+      );
+      return;
+    }
+
+    const qty = Math.min(requestedQty, remainingStock);
+    if (qty < requestedQty) {
+      Alert.alert(
+        'Limited Stock',
+        `Only ${remainingStock} of ${selectedProduct.name} available — added ${qty} instead of ${requestedQty}.`,
+      );
+    }
+
     setOrderItems((items) => {
-      const existing = items.find((i) => i.product_id === selectedProduct.id);
       if (existing) {
         return items.map((i) =>
           i.product_id === selectedProduct.id
@@ -400,23 +424,30 @@ export default function CreateOrderScreen() {
     if (andNext) setShowProductPicker(true);
   };
 
+  const getAvailableStock = (productId: string) => {
+    const product = products.find((p) => p.id === productId);
+    return product ? Number(product.available_stock) || 0 : Infinity;
+  };
+
   const updateQuantity = (productId: string, delta: number) => {
     setOrderItems((items) =>
-      items.map((item) =>
-        item.product_id === productId
-          ? { ...item, quantity: Math.max(0, item.quantity + delta) }
-          : item,
-      ),
+      items.map((item) => {
+        if (item.product_id !== productId) return item;
+        const next = Math.max(0, item.quantity + delta);
+        if (delta > 0 && next + item.free_quantity > getAvailableStock(productId)) return item;
+        return { ...item, quantity: next };
+      }),
     );
   };
 
   const updateFreeQuantity = (productId: string, delta: number) => {
     setOrderItems((items) =>
-      items.map((item) =>
-        item.product_id === productId
-          ? { ...item, free_quantity: Math.max(0, item.free_quantity + delta) }
-          : item,
-      ),
+      items.map((item) => {
+        if (item.product_id !== productId) return item;
+        const next = Math.max(0, item.free_quantity + delta);
+        if (delta > 0 && item.quantity + next > getAvailableStock(productId)) return item;
+        return { ...item, free_quantity: next };
+      }),
     );
   };
 
@@ -450,6 +481,13 @@ export default function CreateOrderScreen() {
   );
 
   const hasEmptyItems = orderItems.some((item) => item.quantity <= 0 && item.free_quantity <= 0);
+
+  const availableCredit = selectedShop
+    ? Math.max(0, Number(selectedShop.max_bill_amount) - Number(selectedShop.current_outstanding))
+    : 0;
+  const exceedsCredit = !!selectedShop && orderTotal > availableCredit;
+  const noBillSlots =
+    !!selectedShop && Number(selectedShop.active_bills) >= Number(selectedShop.max_active_bills);
 
   const handleSubmitOrder = async () => {
     if (!selectedShop || orderItems.length === 0 || hasEmptyItems) return;
@@ -984,9 +1022,30 @@ export default function CreateOrderScreen() {
             <Text style={styles.freeToggleLabel}>Add as free item (no charge)</Text>
           </TouchableOpacity>
 
+          <View style={styles.unitToggleRow}>
+            <TouchableOpacity
+              style={[styles.unitToggleOption, !orderByCase && styles.unitToggleOptionActive]}
+              onPress={() => setOrderByCase(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.unitToggleText, !orderByCase && styles.unitToggleTextActive]}>
+                Units
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.unitToggleOption, orderByCase && styles.unitToggleOptionActive]}
+              onPress={() => setOrderByCase(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.unitToggleText, orderByCase && styles.unitToggleTextActive]}>
+                Cases (1 = {CASE_SIZE})
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.row}>
             <TextInput
-              placeholder="Qty"
+              placeholder={orderByCase ? 'Cases' : 'Qty'}
               placeholderTextColor={colors.textMuted}
               style={[styles.input, styles.qtyInput]}
               keyboardType="numeric"
@@ -1020,6 +1079,11 @@ export default function CreateOrderScreen() {
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={styles.itemMeta}>{formatCurrency(item.unit_price)} LKR</Text>
+                    {item.quantity >= CASE_SIZE && item.quantity % CASE_SIZE === 0 ? (
+                      <Text style={styles.itemMeta}>
+                        {item.quantity / CASE_SIZE} case{item.quantity / CASE_SIZE === 1 ? '' : 's'}
+                      </Text>
+                    ) : null}
                   </View>
                   <View style={styles.itemActions}>
                     <TouchableOpacity style={styles.qtyButton} onPress={() => updateQuantity(item.product_id, -1)}>
@@ -1061,6 +1125,22 @@ export default function CreateOrderScreen() {
           <Text style={styles.summaryLabel}>Order Total</Text>
           <Text style={styles.summaryValue}>{formatCurrency(orderTotal)} LKR</Text>
         </View>
+
+        {noBillSlots ? (
+          <View style={styles.creditWarningDanger}>
+            <Text style={styles.creditWarningDangerText}>
+              This shop has no bill slots left ({selectedShop?.active_bills}/{selectedShop?.max_active_bills} active). The order may be rejected.
+            </Text>
+          </View>
+        ) : null}
+
+        {exceedsCredit ? (
+          <View style={styles.creditWarningAmber}>
+            <Text style={styles.creditWarningAmberText}>
+              Order total exceeds available credit by {formatCurrency(orderTotal - availableCredit)} LKR (available: {formatCurrency(availableCredit)} LKR).
+            </Text>
+          </View>
+        ) : null}
 
         {hasEmptyItems ? (
           <Text style={styles.errorText}>
@@ -1356,6 +1436,10 @@ export default function CreateOrderScreen() {
                   <TouchableOpacity
                     style={styles.dropdownItem}
                     onPress={() => {
+                      if ((Number(item.available_stock) || 0) <= 0) {
+                        Alert.alert('Out of Stock', `${item.name} has no available stock.`);
+                        return;
+                      }
                       setSelectedProduct(item);
                       setProductSearch('');
                       setShowProductPicker(false);
@@ -1634,6 +1718,56 @@ const makeStyles = (colors: ThemeColors) =>
   },
   freeToggleLabel: {
     color: colors.textSubtle,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  unitToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 4,
+    gap: 4,
+  },
+  unitToggleOption: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center',
+  },
+  unitToggleOptionActive: {
+    backgroundColor: colors.accent,
+  },
+  unitToggleText: {
+    color: colors.textSubtle,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  unitToggleTextActive: {
+    color: colors.background,
+  },
+  creditWarningAmber: {
+    backgroundColor: colors.warningSurface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  creditWarningAmberText: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  creditWarningDanger: {
+    backgroundColor: colors.dangerSurface,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.danger,
+  },
+  creditWarningDangerText: {
+    color: colors.danger,
     fontSize: 13,
     fontWeight: '600',
   },

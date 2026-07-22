@@ -104,13 +104,9 @@ const formatRelativeDate = (dateValue: string | number | null | undefined) => {
 };
 
 interface DashboardStats {
-  total_orders: number;
   pending_orders: number;
   approved_orders: number;
   rejected_orders: number;
-  total_revenue: number;
-  total_collected: number;
-  outstanding_amount: number;
   shop_count: number;
   today_orders: number;
   today_collections: number;
@@ -246,23 +242,21 @@ export default function DashboardScreen() {
       const collections = collectionsData.collections || [];
       const shops = shopsData.shops || [];
 
+      const todayString = new Date().toDateString();
+      const todayOrders = orders.filter(
+        (o: any) => parseDate(o.created_at)?.toDateString() === todayString,
+      );
+      const todayCollections = collections.filter(
+        (c: any) => parseDate(c.payment_date)?.toDateString() === todayString,
+      );
+
       const dashboardStats: DashboardStats = {
-        total_orders: orders.length,
-        pending_orders: orders.filter((o: any) => o.status === 'pending').length,
-        approved_orders: orders.filter((o: any) => o.status === 'approved').length,
-        rejected_orders: orders.filter((o: any) => o.status === 'rejected').length,
-        total_revenue: orders.reduce((sum: number, o: any) => sum + Number(o.total || 0), 0),
-        total_collected: collections.reduce((sum: number, c: any) => sum + Number(c.payment_amount || 0), 0),
-        outstanding_amount: shops.reduce((sum: number, s: any) => sum + Number(s.current_outstanding || 0), 0),
+        pending_orders: todayOrders.filter((o: any) => o.status === 'pending').length,
+        approved_orders: todayOrders.filter((o: any) => o.status === 'approved').length,
+        rejected_orders: todayOrders.filter((o: any) => o.status === 'rejected').length,
         shop_count: shops.length,
-        today_orders: orders.filter((o: any) => {
-          const orderDate = parseDate(o.created_at);
-          return orderDate?.toDateString() === new Date().toDateString();
-        }).length,
-        today_collections: collections.filter((c: any) => {
-          const collectionDate = parseDate(c.payment_date);
-          return collectionDate?.toDateString() === new Date().toDateString();
-        }).length,
+        today_orders: todayOrders.length,
+        today_collections: todayCollections.length,
       };
 
       const recentOrdersData = orders
@@ -392,26 +386,6 @@ export default function DashboardScreen() {
         </AnimatedCard>
       </LinearGradient>
 
-      {/* Stats Grid */}
-      <View style={styles.grid}>
-        <AnimatedCard delay={100} style={[styles.statCard, styles.statCardBlue]}>
-          <Text style={styles.statLabel}>TOTAL ORDERS</Text>
-          <Text style={styles.statValue}>{stats?.total_orders || 0}</Text>
-        </AnimatedCard>
-        <AnimatedCard delay={150} style={[styles.statCard, styles.statCardIndigo]}>
-          <Text style={styles.statLabel}>TOTAL REVENUE</Text>
-          <Text style={styles.statValue}>{formatCurrency(stats?.total_revenue || 0)}</Text>
-        </AnimatedCard>
-        <AnimatedCard delay={200} style={[styles.statCard, styles.statCardAmber]}>
-          <Text style={styles.statLabel}>OUTSTANDING</Text>
-          <Text style={styles.statValue}>{formatCurrency(stats?.outstanding_amount || 0)}</Text>
-        </AnimatedCard>
-        <AnimatedCard delay={250} style={[styles.statCard, styles.statCardGreen]}>
-          <Text style={styles.statLabel}>SHOPS</Text>
-          <Text style={styles.statValue}>{stats?.shop_count || 0}</Text>
-        </AnimatedCard>
-      </View>
-
       {/* Order Status Section */}
       <AnimatedCard delay={300} style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
@@ -419,7 +393,7 @@ export default function DashboardScreen() {
             <View style={[styles.sectionAccentBar, { backgroundColor: colors.warning }]} />
             <Text style={styles.sectionTitle}>Order Status</Text>
           </View>
-          <Text style={styles.sectionCaption}>All time</Text>
+          <Text style={styles.sectionCaption}>Today</Text>
         </View>
         <View style={styles.statusGrid}>
           <View style={[styles.statusCard, { backgroundColor: colors.warningSurface }]}>
@@ -650,56 +624,6 @@ const makeStyles = (colors: ThemeColors) =>
     fontWeight: '500',
     marginTop: 4,
     textAlign: 'center',
-  },
-  // ── Stats Grid ───────────────────────────────────────────
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  statCard: {
-    flexBasis: '48%',
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    padding: 18,
-    minHeight: 110,
-    justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOpacity: 0.07,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  statCardBlue: {
-    borderTopWidth: 3,
-    borderTopColor: colors.cardBlue,
-  },
-  statCardIndigo: {
-    borderTopWidth: 3,
-    borderTopColor: colors.cardPurple,
-  },
-  statCardAmber: {
-    borderTopWidth: 3,
-    borderTopColor: colors.cardAmber,
-  },
-  statCardGreen: {
-    borderTopWidth: 3,
-    borderTopColor: colors.cardGreen,
-  },
-  statLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '700',
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
-  },
-  statValue: {
-    color: colors.text,
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-    fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif-medium',
   },
   // ── Section Cards ────────────────────────────────────────
   sectionCard: {
