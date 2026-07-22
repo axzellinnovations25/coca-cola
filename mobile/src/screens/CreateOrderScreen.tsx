@@ -244,6 +244,7 @@ export default function CreateOrderScreen() {
   const [productSearch, setProductSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState('1');
+  const [addAsFree, setAddAsFree] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showShopPicker, setShowShopPicker] = useState(false);
 
@@ -366,7 +367,11 @@ export default function CreateOrderScreen() {
       const existing = items.find((i) => i.product_id === selectedProduct.id);
       if (existing) {
         return items.map((i) =>
-          i.product_id === selectedProduct.id ? { ...i, quantity: i.quantity + qty } : i,
+          i.product_id === selectedProduct.id
+            ? addAsFree
+              ? { ...i, free_quantity: i.free_quantity + qty }
+              : { ...i, quantity: i.quantity + qty }
+            : i,
         );
       }
       return [
@@ -375,14 +380,15 @@ export default function CreateOrderScreen() {
           product_id: selectedProduct.id,
           name: selectedProduct.name,
           unit_price: Number(selectedProduct.unit_price) || 0,
-          quantity: qty,
-          free_quantity: 0,
+          quantity: addAsFree ? 0 : qty,
+          free_quantity: addAsFree ? qty : 0,
         },
       ];
     });
     setSelectedProduct(null);
     setProductSearch('');
     setQuantity('1');
+    setAddAsFree(false);
     if (andNext) setShowProductPicker(true);
   };
 
@@ -390,7 +396,7 @@ export default function CreateOrderScreen() {
     setOrderItems((items) =>
       items.map((item) =>
         item.product_id === productId
-          ? { ...item, quantity: Math.max(1, item.quantity + delta) }
+          ? { ...item, quantity: Math.max(0, item.quantity + delta) }
           : item,
       ),
     );
@@ -415,8 +421,10 @@ export default function CreateOrderScreen() {
     0,
   );
 
+  const hasEmptyItems = orderItems.some((item) => item.quantity <= 0 && item.free_quantity <= 0);
+
   const handleSubmitOrder = async () => {
-    if (!selectedShop || orderItems.length === 0) return;
+    if (!selectedShop || orderItems.length === 0 || hasEmptyItems) return;
     setSubmitting(true);
     setError('');
     setMessageStatus({ type: null, message: '' });
@@ -426,11 +434,15 @@ export default function CreateOrderScreen() {
         body: JSON.stringify({
           shop_id: selectedShop.id,
           items: orderItems.flatMap((item) => [
-            {
-              product_id: item.product_id,
-              quantity: item.quantity,
-              unit_price: Number(item.unit_price || 0),
-            },
+            ...(item.quantity > 0
+              ? [
+                  {
+                    product_id: item.product_id,
+                    quantity: item.quantity,
+                    unit_price: Number(item.unit_price || 0),
+                  },
+                ]
+              : []),
             ...(item.free_quantity > 0
               ? [
                   {
@@ -918,6 +930,17 @@ export default function CreateOrderScreen() {
             </Text>
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.freeToggleRow}
+            onPress={() => setAddAsFree((prev) => !prev)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.freeToggleBox, addAsFree && styles.freeToggleBoxChecked]}>
+              {addAsFree ? <Text style={styles.freeToggleCheck}>✓</Text> : null}
+            </View>
+            <Text style={styles.freeToggleLabel}>Add as free item (no charge)</Text>
+          </TouchableOpacity>
+
           <View style={styles.row}>
             <TextInput
               placeholder="Qty"
@@ -996,10 +1019,16 @@ export default function CreateOrderScreen() {
           <Text style={styles.summaryValue}>{formatCurrency(orderTotal)} LKR</Text>
         </View>
 
+        {hasEmptyItems ? (
+          <Text style={styles.errorText}>
+            Some items have no paid or free quantity. Set a quantity or remove them.
+          </Text>
+        ) : null}
+
         <TouchableOpacity
-          style={[styles.submitButton, (!selectedShop || orderItems.length === 0) && styles.buttonDisabled]}
+          style={[styles.submitButton, (!selectedShop || orderItems.length === 0 || hasEmptyItems) && styles.buttonDisabled]}
           onPress={() => setShowConfirm(true)}
-          disabled={!selectedShop || orderItems.length === 0}
+          disabled={!selectedShop || orderItems.length === 0 || hasEmptyItems}
         >
           <Text style={styles.submitButtonText}>Review & Submit</Text>
         </TouchableOpacity>
@@ -1025,8 +1054,10 @@ export default function CreateOrderScreen() {
                     <View key={item.product_id} style={styles.confirmItemRow}>
                       <Text style={styles.confirmItemName}>{item.name}</Text>
                       <Text style={styles.confirmItemQty}>
-                        x{item.quantity}
-                        {item.free_quantity > 0 ? ` + ${item.free_quantity} free` : ''}
+                        {item.quantity > 0 ? `x${item.quantity}` : ''}
+                        {item.free_quantity > 0
+                          ? `${item.quantity > 0 ? ' + ' : ''}${item.free_quantity} free`
+                          : ''}
                       </Text>
                     </View>
                   ))}
@@ -1511,6 +1542,36 @@ const makeStyles = (colors: ThemeColors) =>
   row: {
     flexDirection: 'row',
     gap: 12,
+  },
+  freeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  freeToggleBox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  freeToggleBoxChecked: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  freeToggleCheck: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 14,
+  },
+  freeToggleLabel: {
+    color: colors.textSubtle,
+    fontSize: 13,
+    fontWeight: '600',
   },
   qtyInput: {
     flex: 1,

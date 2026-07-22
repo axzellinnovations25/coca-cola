@@ -41,6 +41,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
   const defaultSelectedQuantity = 0;
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedQuantity, setSelectedQuantity] = useState(defaultSelectedQuantity);
+  const [addAsFree, setAddAsFree] = useState(false);
   const [quantityInputKey, setQuantityInputKey] = useState(0);
   const quantityInputRef = useRef<HTMLInputElement | null>(null);
   const [notes, setNotes] = useState('');
@@ -136,15 +137,24 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       if (existing) {
         return items.map(i =>
           i.product_id === selectedProductId
-            ? { ...i, quantity: i.quantity + quantityToAdd }
+            ? addAsFree
+              ? { ...i, free_quantity: i.free_quantity + quantityToAdd }
+              : { ...i, quantity: i.quantity + quantityToAdd }
             : i
         );
       } else {
-        return [...items, { product_id: product.id, name: product.name, unit_price: product.unit_price, quantity: quantityToAdd, free_quantity: 0 }];
+        return [...items, {
+          product_id: product.id,
+          name: product.name,
+          unit_price: product.unit_price,
+          quantity: addAsFree ? 0 : quantityToAdd,
+          free_quantity: addAsFree ? quantityToAdd : 0,
+        }];
       }
     });
     setSelectedProductId('');
     setSelectedQuantity(defaultSelectedQuantity);
+    setAddAsFree(false);
   };
 
   const handleRemoveItem = (product_id: string) => {
@@ -155,7 +165,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
     setOrderItems(items =>
       items.map(i =>
         i.product_id === product_id
-          ? { ...i, quantity: Math.max(1, i.quantity + delta) }
+          ? { ...i, quantity: Math.max(0, i.quantity + delta) }
           : i
       )
     );
@@ -653,7 +663,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       shop_id: selectedShop.id,
       notes,
       items: orderItems.flatMap(i => [
-        { product_id: i.product_id, unit_price: i.unit_price, quantity: i.quantity },
+        ...(i.quantity > 0 ? [{ product_id: i.product_id, unit_price: i.unit_price, quantity: i.quantity }] : []),
         ...(i.free_quantity > 0 ? [{ product_id: i.product_id, unit_price: 0, quantity: i.free_quantity }] : [])
       ]),
       shop: selectedShop,
@@ -667,7 +677,10 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
 
   // Validation logic
   let validationError = '';
-  if (selectedShop) {
+  const emptyItems = orderItems.filter(i => i.quantity <= 0 && i.free_quantity <= 0);
+  if (emptyItems.length > 0) {
+    validationError = `"${emptyItems[0].name}" has no quantity — set a paid or free quantity, or remove it.`;
+  } else if (selectedShop) {
     const availableCredit = selectedShop.max_bill_amount - selectedShop.current_outstanding;
     if (orderTotal > availableCredit) {
       validationError = `Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`;
@@ -846,6 +859,15 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                   Add
                 </button>
               </div>
+              <label className="flex items-center gap-2 mt-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  className="rounded border-gray-300 text-orange-500 focus:ring-orange-300"
+                  checked={addAsFree}
+                  onChange={e => setAddAsFree(e.target.checked)}
+                />
+                Add as free item (no charge, product not otherwise sold)
+              </label>
             </div>
 
             {/* Order Items */}
@@ -867,15 +889,15 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                           <span className="text-sm text-gray-900">Qty:</span>
                           <input
                             type="number"
-                            min="1"
+                            min="0"
                             className="w-20 px-2 py-1 rounded border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-center text-gray-900"
                             value={item.quantity}
                             onChange={e => {
-                              const newQuantity = parseInt(e.target.value) || 1;
+                              const newQuantity = parseInt(e.target.value) || 0;
                               setOrderItems(items =>
                                 items.map(i =>
                                   i.product_id === item.product_id
-                                    ? { ...i, quantity: Math.max(1, newQuantity) }
+                                    ? { ...i, quantity: Math.max(0, newQuantity) }
                                     : i
                                 )
                               );
@@ -940,7 +962,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                   {orderItems.map(item => (
                     <div key={item.product_id} className="flex justify-between text-sm">
                       <span className="text-gray-900">
-                        {item.name} x {item.quantity}{item.free_quantity > 0 ? ` + ${item.free_quantity} free` : ''}
+                        {item.name}{item.quantity > 0 ? ` x ${item.quantity}` : ''}{item.free_quantity > 0 ? `${item.quantity > 0 ? ' +' : ''} ${item.free_quantity} free` : ''}
                       </span>
                       <span className="font-semibold text-gray-900">{(item.unit_price * item.quantity).toFixed(2)} LKR</span>
                     </div>
@@ -1021,7 +1043,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                   {orderToConfirm.orderItems.map((item: any) => (
                     <div key={item.product_id} className="flex justify-between text-sm">
                       <span className="text-gray-900">
-                        {item.name} x {item.quantity}{item.free_quantity > 0 ? ` + ${item.free_quantity} free` : ''}
+                        {item.name}{item.quantity > 0 ? ` x ${item.quantity}` : ''}{item.free_quantity > 0 ? `${item.quantity > 0 ? ' +' : ''} ${item.free_quantity} free` : ''}
                       </span>
                       <span className="font-medium text-gray-900">{(item.unit_price * item.quantity).toFixed(2)} LKR</span>
                     </div>
@@ -1115,7 +1137,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                   {receipt.items.map((item: any, index: number) => (
                     <div key={index} className="flex justify-between text-sm">
                       <span className="text-gray-900">
-                        {item.name} x {item.quantity}{item.free_quantity > 0 ? ` + ${item.free_quantity} free` : ''}
+                        {item.name}{item.quantity > 0 ? ` x ${item.quantity}` : ''}{item.free_quantity > 0 ? `${item.quantity > 0 ? ' +' : ''} ${item.free_quantity} free` : ''}
                       </span>
                       <span className="font-medium text-gray-900">{(item.unit_price * item.quantity).toFixed(2)} LKR</span>
                     </div>
