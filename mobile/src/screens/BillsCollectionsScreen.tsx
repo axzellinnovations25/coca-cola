@@ -11,6 +11,7 @@ import {
   PermissionsAndroid,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -278,6 +279,7 @@ export default function BillsCollectionsScreen() {
   const [returnLoading, setReturnLoading] = useState(false);
   const [returnError, setReturnError] = useState('');
 
+  const [refreshing, setRefreshing] = useState(false);
   const lastFetchedAt = useRef(0);
 
   const fetchBills = useCallback(async (silent = false) => {
@@ -291,8 +293,14 @@ export default function BillsCollectionsScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchBills(true);
+  }, [fetchBills]);
 
   useFocusEffect(
     useCallback(() => {
@@ -868,6 +876,14 @@ export default function BillsCollectionsScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
         ListEmptyComponent={<Text style={styles.emptyText}>No bills found.</Text>}
         renderItem={({ item }) => (
           <View style={styles.card}>

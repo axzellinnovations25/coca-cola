@@ -9,6 +9,7 @@ import {
   NativeModules,
   PermissionsAndroid,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -237,6 +238,7 @@ export default function CreateOrderScreen() {
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -295,8 +297,14 @@ export default function CreateOrderScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchData(true);
+  }, [fetchData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -414,6 +422,26 @@ export default function CreateOrderScreen() {
 
   const removeItem = (productId: string) => {
     setOrderItems((items) => items.filter((item) => item.product_id !== productId));
+  };
+
+  const clearForm = () => {
+    setSelectedShop(null);
+    setOrderItems([]);
+    setShopSearch('');
+    setProductSearch('');
+    setSelectedProduct(null);
+    setQuantity('1');
+    setAddAsFree(false);
+    setError('');
+    setMessageStatus({ type: null, message: '' });
+  };
+
+  const handleClearPress = () => {
+    if (!selectedShop && orderItems.length === 0) return;
+    Alert.alert('Clear Order', 'This will clear the shop and all items on this screen. Continue?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear', style: 'destructive', onPress: clearForm },
+    ]);
   };
 
   const orderTotal = orderItems.reduce(
@@ -877,9 +905,24 @@ export default function CreateOrderScreen() {
         scrollIndicatorInsets={{ bottom: bottomTabBarHeight }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
       >
-        <Text style={styles.title}>Create Order</Text>
-        <Text style={styles.subtitle}>Build a new order for your assigned shops.</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.title}>Create Order</Text>
+            <Text style={styles.subtitle}>Build a new order for your assigned shops.</Text>
+          </View>
+          <TouchableOpacity style={styles.clearButton} onPress={handleClearPress}>
+            <Text style={styles.clearButtonText}>Clear</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Select Shop</Text>
@@ -1421,6 +1464,27 @@ const makeStyles = (colors: ThemeColors) =>
     marginTop: 12,
     color: colors.textSubtle,
     fontWeight: '600',
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  headerTextWrap: {
+    flex: 1,
+  },
+  clearButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+  },
+  clearButtonText: {
+    color: colors.danger,
+    fontWeight: '700',
   },
   title: {
     color: colors.text,

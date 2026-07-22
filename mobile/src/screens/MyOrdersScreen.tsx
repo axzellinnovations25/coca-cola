@@ -12,6 +12,7 @@ import {
   Keyboard,
   Modal,
   Platform,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -193,9 +194,11 @@ export default function MyOrdersScreen() {
     };
   }, []);
 
-  const fetchOrders = useCallback(async () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchOrders = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError("");
       const [ordersData, pendingData] = await Promise.all([
         apiFetch("/api/marudham/orders"),
@@ -207,8 +210,14 @@ export default function MyOrdersScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchOrders(true);
+  }, [fetchOrders]);
 
   useFocusEffect(
     useCallback(() => {
@@ -436,7 +445,7 @@ export default function MyOrdersScreen() {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading orders</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={fetchOrders}>
+        <TouchableOpacity style={styles.retry} onPress={() => fetchOrders()}>
           <Text style={styles.retryText}>Try again</Text>
         </TouchableOpacity>
       </View>
@@ -451,6 +460,14 @@ export default function MyOrdersScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
         ListEmptyComponent={
           <Text style={styles.emptyText}>No orders found.</Text>
         }

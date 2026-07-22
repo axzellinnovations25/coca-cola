@@ -3,6 +3,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   Platform,
+  RefreshControl,
   StyleSheet,
   Switch,
   Text,
@@ -35,9 +36,11 @@ export default function MyShopsScreen() {
   const [outstandingOnly, setOutstandingOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const fetchShops = useCallback(async () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchShops = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const data = await apiFetch('/api/marudham/shops/assigned');
       setShops(data.shops || []);
@@ -45,8 +48,14 @@ export default function MyShopsScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchShops(true);
+  }, [fetchShops]);
 
   useFocusEffect(
     useCallback(() => {
@@ -75,7 +84,7 @@ export default function MyShopsScreen() {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading shops</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={fetchShops}>
+        <TouchableOpacity style={styles.retry} onPress={() => fetchShops()}>
           <Text style={styles.retryText}>Try again</Text>
         </TouchableOpacity>
       </View>
@@ -122,6 +131,14 @@ export default function MyShopsScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<Text style={styles.emptyText}>No shops found.</Text>}
         renderItem={({ item }) => (

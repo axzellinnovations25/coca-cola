@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   FlatList,
   Platform,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
@@ -124,9 +125,11 @@ export default function MyCollectionScreen() {
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
 
-  const fetchCollections = useCallback(async () => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchCollections = useCallback(async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       setError('');
       const [collectionsData, statsData] = await Promise.all([
         apiFetch('/api/marudham/collections/representative'),
@@ -138,8 +141,14 @@ export default function MyCollectionScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchCollections(true);
+  }, [fetchCollections]);
 
   useFocusEffect(
     useCallback(() => {
@@ -192,7 +201,7 @@ export default function MyCollectionScreen() {
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading collections</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retry} onPress={fetchCollections}>
+        <TouchableOpacity style={styles.retry} onPress={() => fetchCollections()}>
           <Text style={styles.retryText}>Try again</Text>
         </TouchableOpacity>
       </View>
@@ -261,6 +270,14 @@ export default function MyCollectionScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+          />
+        }
         ListHeaderComponent={listHeader}
         ListEmptyComponent={<Text style={styles.emptyText}>No collections found.</Text>}
         renderItem={({ item }) => (
