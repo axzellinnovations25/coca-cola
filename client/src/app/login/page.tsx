@@ -192,6 +192,12 @@ export default function LoginPage() {
 
             {/* Footer */}
             <div className="text-center">
+              <Link
+                href="/privacy-policy/"
+                className="mb-2 inline-block text-xs font-medium text-purple-700 transition-colors hover:text-purple-900 focus:outline-none focus:ring-2 focus:ring-purple-500 rounded"
+              >
+                Privacy Policy
+              </Link>
               <p className="text-xs text-gray-500">&copy; {new Date().getFullYear()} axzell innovations (Pvt) Ltd. All rights reserved.</p>
             </div>
           </div>

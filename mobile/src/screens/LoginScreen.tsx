@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,8 @@ import {
 import DismissKeyboard from '../components/DismissKeyboard';
 import { useAuth } from '../context/AuthContext';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+
+const PRIVACY_POLICY_URL = 'https://sbdistribution.store/privacy-policy/';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -163,6 +166,15 @@ export default function LoginScreen() {
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+
+            <TouchableOpacity
+              onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+              style={styles.privacyLink}
+              accessibilityRole="link"
+              accessibilityLabel="Open Privacy Policy"
+            >
+              <Text style={styles.privacyLinkText}>Privacy Policy</Text>
+            </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
       </LinearGradient>
@@ -307,5 +319,16 @@ const makeStyles = (colors: ThemeColors) =>
       fontWeight: '700',
       fontSize: 16,
       letterSpacing: 0.3,
+    },
+    privacyLink: {
+      marginTop: 20,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    privacyLinkText: {
+      color: 'rgba(255,255,255,0.9)',
+      fontSize: 13,
+      fontWeight: '600',
+      textDecorationLine: 'underline',
     },
   });
