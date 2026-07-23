@@ -73,7 +73,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
   const [editError, setEditError] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
   const [newProductId, setNewProductId] = useState('');
-  const [newProductQty, setNewProductQty] = useState(1);
+  const [newProductQty, setNewProductQty] = useState(0);
   const ORDERS_PER_PAGE = 10;
   const parseOrderDate = (value?: string | Date | null) => {
     if (!value) return null;
@@ -291,7 +291,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
       ];
     });
     setNewProductId('');
-    setNewProductQty(1);
+    setNewProductQty(0);
   };
 
   // Function to handle print receipt - shows modal first
@@ -1083,7 +1083,7 @@ export default function MyOrders({ refreshKey }: MyOrdersProps) {
                   <input
                     type="number"
                     min={1}
-                    value={newProductQty}
+                    value={newProductQty === 0 ? '' : newProductQty}
                     onChange={(e) => setNewProductQty(Number(e.target.value))}
                     className="w-full sm:w-24 px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   />

@@ -179,7 +179,7 @@ export default function MyOrdersScreen() {
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState("");
   const [newProductId, setNewProductId] = useState("");
-  const [newProductQty, setNewProductQty] = useState("1");
+  const [newProductQty, setNewProductQty] = useState("");
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [selectedEditProduct, setSelectedEditProduct] =
@@ -337,7 +337,7 @@ export default function MyOrdersScreen() {
       setEditItems([]);
       setEditNotes("");
       setNewProductId("");
-      setNewProductQty("1");
+      setNewProductQty("");
       fetchOrders();
     } catch (err: any) {
       setEditError(err.message || "Failed to update order.");
@@ -382,7 +382,7 @@ export default function MyOrdersScreen() {
       ];
     });
     setNewProductId("");
-    setNewProductQty("1");
+    setNewProductQty("");
     setSelectedEditProduct(null);
     setProductSearch("");
     setShowProductPicker(false);

@@ -45,6 +45,7 @@ interface Product {
   name: string;
   unit_price: number;
   available_stock: number;
+  units_per_case?: number;
 }
 
 interface OrderItem {
@@ -53,6 +54,7 @@ interface OrderItem {
   unit_price: number;
   quantity: number;
   free_quantity: number;
+  units_per_case?: number;
 }
 
 interface BluetoothPrinterDevice {
@@ -62,7 +64,33 @@ interface BluetoothPrinterDevice {
 
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
-const CASE_SIZE = 12;
+const DEFAULT_CASE_SIZE = 12;
+// Server is the source of truth (products.units_per_case); the name heuristic
+// below only covers servers that don't send the field yet.
+const getCaseSize = (product: { name?: string; units_per_case?: number } | null | undefined) => {
+  const fromServer = Number(product?.units_per_case);
+  if (Number.isInteger(fromServer) && fromServer >= 1) return fromServer;
+  const name = (product?.name || '').toLowerCase();
+  const compact = name.replace(/\s+/g, '');
+  if (name.includes('monster')) return 24;
+  if (name.includes('water')) {
+    if (compact.includes('1500ml') || compact.includes('1.5l')) return 12;
+    if (compact.includes('1000ml') || compact.includes('1l')) return 15;
+    if (compact.includes('500ml')) return 24;
+    return 24;
+  }
+  if (compact.includes('250ml') && name.includes('tin')) return 24;
+  if (compact.includes('250ml')) return 16;
+  if (compact.includes('175ml')) return 24;
+  if (compact.includes('300ml')) return 24;
+  if (compact.includes('1050ml')) return 12;
+  if (compact.includes('1.30l') || compact.includes('1.3l')) return 12;
+  if (compact.includes('750ml')) return 9;
+  if (compact.includes('1.25l') || compact.includes('1250ml')) return 12;
+  if (compact.includes('2.25l') || compact.includes('2250ml')) return 9;
+  if (compact.includes('2l') || compact.includes('2000ml')) return 9;
+  return DEFAULT_CASE_SIZE;
+};
 const PRINTER_MAC_KEY = 'bluetooth_receipt_printer_mac';
 const RECEIPT_LINE_WIDTH = 42;
 const BLUETOOTH_SCAN_TIMEOUT_MS = 12000;
@@ -246,7 +274,7 @@ export default function CreateOrderScreen() {
   const [shopSearch, setShopSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [quantity, setQuantity] = useState('1');
+  const [quantity, setQuantity] = useState('');
   const [addAsFree, setAddAsFree] = useState(false);
   const [orderByCase, setOrderByCase] = useState(false);
   const [showProductPicker, setShowProductPicker] = useState(false);
@@ -372,8 +400,12 @@ export default function CreateOrderScreen() {
 
   const addItem = (andNext = false) => {
     if (!selectedProduct) return;
-    const enteredQty = Math.max(1, Number(quantity));
-    const requestedQty = orderByCase ? enteredQty * CASE_SIZE : enteredQty;
+    const enteredQty = Number(quantity);
+    if (!quantity.trim() || !Number.isFinite(enteredQty) || enteredQty < 1) {
+      Alert.alert('Quantity Required', orderByCase ? 'Enter the number of cases.' : 'Enter a quantity.');
+      return;
+    }
+    const requestedQty = orderByCase ? enteredQty * getCaseSize(selectedProduct) : enteredQty;
 
     const stock = Number(selectedProduct.available_stock) || 0;
     const existing = orderItems.find((i) => i.product_id === selectedProduct.id);
@@ -414,12 +446,13 @@ export default function CreateOrderScreen() {
           unit_price: Number(selectedProduct.unit_price) || 0,
           quantity: addAsFree ? 0 : qty,
           free_quantity: addAsFree ? qty : 0,
+          units_per_case: selectedProduct.units_per_case,
         },
       ];
     });
     setSelectedProduct(null);
     setProductSearch('');
-    setQuantity('1');
+    setQuantity('');
     setAddAsFree(false);
     if (andNext) setShowProductPicker(true);
   };
@@ -461,7 +494,7 @@ export default function CreateOrderScreen() {
     setShopSearch('');
     setProductSearch('');
     setSelectedProduct(null);
-    setQuantity('1');
+    setQuantity('');
     setAddAsFree(false);
     setError('');
     setMessageStatus({ type: null, message: '' });
@@ -1038,7 +1071,7 @@ export default function CreateOrderScreen() {
               activeOpacity={0.7}
             >
               <Text style={[styles.unitToggleText, orderByCase && styles.unitToggleTextActive]}>
-                Cases (1 = {CASE_SIZE})
+                Cases (1 = {selectedProduct ? getCaseSize(selectedProduct) : DEFAULT_CASE_SIZE})
               </Text>
             </TouchableOpacity>
           </View>
@@ -1074,14 +1107,16 @@ export default function CreateOrderScreen() {
               keyExtractor={(item) => item.product_id}
               scrollEnabled={false}
               contentContainerStyle={styles.itemsList}
-              renderItem={({ item }) => (
+              renderItem={({ item }) => {
+                const itemCaseSize = getCaseSize(item);
+                return (
                 <View style={styles.itemCard}>
                   <View style={styles.itemInfo}>
                     <Text style={styles.itemName}>{item.name}</Text>
                     <Text style={styles.itemMeta}>{formatCurrency(item.unit_price)} LKR</Text>
-                    {item.quantity >= CASE_SIZE && item.quantity % CASE_SIZE === 0 ? (
+                    {item.quantity >= itemCaseSize && item.quantity % itemCaseSize === 0 ? (
                       <Text style={styles.itemMeta}>
-                        {item.quantity / CASE_SIZE} case{item.quantity / CASE_SIZE === 1 ? '' : 's'}
+                        {item.quantity / itemCaseSize} case{item.quantity / itemCaseSize === 1 ? '' : 's'}
                       </Text>
                     ) : null}
                   </View>
@@ -1114,7 +1149,8 @@ export default function CreateOrderScreen() {
                     </TouchableOpacity>
                   </View>
                 </View>
-              )}
+                );
+              }}
             />
           ) : (
             <Text style={styles.emptyText}>No items added yet.</Text>

@@ -343,7 +343,7 @@ export default function BillsCollectionsScreen() {
   const openPaymentModal = (bill: Bill, shopName: string) => {
     setSelectedBill(bill);
     setSelectedShopName(shopName ?? '');
-    setPaymentAmount(bill.outstanding.toFixed(2));
+    setPaymentAmount('');
     setPaymentNotes('');
     setShowNotesInput(false);
     setPaymentError('');

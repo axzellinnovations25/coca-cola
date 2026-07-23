@@ -82,7 +82,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
     setSelectedQuantity(defaultSelectedQuantity);
     setQuantityInputKey(key => key + 1); // remount input to wipe autofill
     if (quantityInputRef.current) {
-      quantityInputRef.current.value = String(defaultSelectedQuantity);
+      quantityInputRef.current.value = '';
     }
   }, []);
 
@@ -92,7 +92,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       setSelectedQuantity(defaultSelectedQuantity);
       setQuantityInputKey(key => key + 1);
       if (quantityInputRef.current) {
-        quantityInputRef.current.value = String(defaultSelectedQuantity);
+        quantityInputRef.current.value = '';
       }
     }, 100);
     return () => window.clearTimeout(timeout);
@@ -838,7 +838,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                   name="add-product-quantity"
                   ref={quantityInputRef}
                   className="w-24 px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
-                  value={selectedQuantity}
+                  value={selectedQuantity === 0 ? '' : selectedQuantity}
                   onChange={e => {
                     const raw = e.target.value;
                     if (raw === '') {

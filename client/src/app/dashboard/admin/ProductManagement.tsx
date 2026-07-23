@@ -8,6 +8,7 @@ interface Product {
   unit_price: number;
   stock: number;
   reserved_stock: number;
+  units_per_case?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -19,7 +20,7 @@ export default function ProductManagement() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
-  const [form, setForm] = useState({ name: '', description: '', unit_price: '', stock: '' });
+  const [form, setForm] = useState({ name: '', description: '', unit_price: '', stock: '', units_per_case: '12' });
   const [formError, setFormError] = useState('');
   const [formLoading, setFormLoading] = useState(false);
   const firstInputRef = useRef<HTMLInputElement>(null);
@@ -143,7 +144,7 @@ export default function ProductManagement() {
   }, []);
 
   const openAddModal = () => {
-    setForm({ name: '', description: '', unit_price: '', stock: '' });
+    setForm({ name: '', description: '', unit_price: '', stock: '', units_per_case: '12' });
     setFormError('');
     setShowAddModal(true);
     setTimeout(() => firstInputRef.current?.focus(), 100);
@@ -156,6 +157,7 @@ export default function ProductManagement() {
       description: product.description,
       unit_price: product.unit_price.toString(),
       stock: product.stock.toString(),
+      units_per_case: (product.units_per_case ?? 12).toString(),
     });
     setFormError('');
     setShowEditModal(true);
@@ -174,6 +176,7 @@ export default function ProductManagement() {
           description: form.description,
           unit_price: parseFloat(form.unit_price),
           stock: parseInt(form.stock, 10),
+          units_per_case: parseInt(form.units_per_case, 10),
         }),
       });
       setShowAddModal(false);
@@ -200,6 +203,7 @@ export default function ProductManagement() {
           description: form.description,
           unit_price: parseFloat(form.unit_price),
           stock: parseInt(form.stock, 10),
+          units_per_case: parseInt(form.units_per_case, 10),
         }),
       });
       setShowEditModal(false);
@@ -509,6 +513,19 @@ export default function ProductManagement() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Units per Case</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="12"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.units_per_case}
+                  onChange={e => setForm(f => ({ ...f, units_per_case: e.target.value }))}
+                  required
+                />
+              </div>
               {formError && <p className="text-red-500 text-sm text-center">{formError}</p>}
               <button
                 type="submit"
@@ -597,6 +614,19 @@ export default function ProductManagement() {
                     required
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Units per Case</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="12"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
+                  value={form.units_per_case}
+                  onChange={e => setForm(f => ({ ...f, units_per_case: e.target.value }))}
+                  required
+                />
               </div>
               {formError && <p className="text-red-500 text-sm text-center">{formError}</p>}
               <button

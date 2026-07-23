@@ -12,9 +12,9 @@ exports.listProducts = async (req, res) => {
 
 exports.addProduct = async (req, res) => {
   try {
-    const { name, description, unit_price, stock } = req.body;
+    const { name, description, unit_price, stock, units_per_case } = req.body;
     const user_id = req.user && req.user.id;
-    const product = await productService.addProduct({ name, description, unit_price, stock, user_id });
+    const product = await productService.addProduct({ name, description, unit_price, stock, units_per_case, user_id });
     res.status(201).json({ product });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -24,9 +24,9 @@ exports.addProduct = async (req, res) => {
 exports.editProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, unit_price, stock } = req.body;
+    const { name, description, unit_price, stock, units_per_case } = req.body;
     const user_id = req.user && req.user.id;
-    const product = await productService.editProduct({ id, name, description, unit_price, stock, user_id });
+    const product = await productService.editProduct({ id, name, description, unit_price, stock, units_per_case, user_id });
     res.json({ product });
   } catch (error) {
     res.status(400).json({ error: error.message });

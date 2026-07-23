@@ -86,28 +86,38 @@ async function listProducts() {
   return result.rows;
 }
 
-async function addProduct({ name, description, unit_price, stock, user_id }) {
+function normalizeUnitsPerCase(units_per_case) {
+  const parsed = Number(units_per_case);
+  if (!Number.isInteger(parsed) || parsed < 1) return 12;
+  return parsed;
+}
+
+async function addProduct({ name, description, unit_price, stock, units_per_case, user_id }) {
   const id = randomUUID();
+  const unitsPerCase = normalizeUnitsPerCase(units_per_case);
   const result = await pool.query(
-    `INSERT INTO products (id, name, description, unit_price, stock)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO products (id, name, description, unit_price, stock, units_per_case)
+     VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
-    [id, name, description, unit_price, stock]
+    [id, name, description, unit_price, stock, unitsPerCase]
   );
   const product = result.rows[0];
-  await logProductAction({ product_id: product.id, user_id, action: 'add', details: { name, description, unit_price, stock } });
+  await logProductAction({ product_id: product.id, user_id, action: 'add', details: { name, description, unit_price, stock, units_per_case: unitsPerCase } });
   return product;
 }
 
-async function editProduct({ id, name, description, unit_price, stock, user_id }) {
+async function editProduct({ id, name, description, unit_price, stock, units_per_case, user_id }) {
   // Fetch before for log
   const beforeRes = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
   if (beforeRes.rows.length === 0) throw new Error('Product not found');
   const before = beforeRes.rows[0];
+  const unitsPerCase = units_per_case === undefined || units_per_case === null || units_per_case === ''
+    ? before.units_per_case
+    : normalizeUnitsPerCase(units_per_case);
   const result = await pool.query(
-    `UPDATE products SET name = $1, description = $2, unit_price = $3, stock = $4, updated_at = now()
-     WHERE id = $5 RETURNING *`,
-    [name, description, unit_price, stock, id]
+    `UPDATE products SET name = $1, description = $2, unit_price = $3, stock = $4, units_per_case = $5, updated_at = now()
+     WHERE id = $6 RETURNING *`,
+    [name, description, unit_price, stock, unitsPerCase, id]
   );
   if (result.rows.length === 0) throw new Error('Product not found');
   const after = result.rows[0];
