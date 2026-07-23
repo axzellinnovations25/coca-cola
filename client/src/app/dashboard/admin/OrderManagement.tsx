@@ -146,6 +146,7 @@ export default function OrderManagement() {
   const [products, setProducts] = useState<Product[]>([]);
   const [newProductId, setNewProductId] = useState('');
   const [newProductQty, setNewProductQty] = useState(1);
+  const [newProductFree, setNewProductFree] = useState(false);
   
   const ORDERS_PER_PAGE = 10;
 
@@ -260,18 +261,20 @@ export default function OrderManagement() {
     const product = products.find(p => p.id === newProductId);
     if (!product) return;
 
+    const unitPrice = newProductFree ? 0 : product.unit_price;
     setEditItems(prev => [
       ...prev,
       {
         product_id: product.id,
         name: product.name,
-        unit_price: product.unit_price,
+        unit_price: unitPrice,
         quantity: newProductQty,
-        total: product.unit_price * newProductQty
+        total: unitPrice * newProductQty
       }
     ]);
     setNewProductId('');
     setNewProductQty(1);
+    setNewProductFree(false);
   };
 
   const triggerRefresh = () => {
@@ -1026,7 +1029,7 @@ export default function OrderManagement() {
                 <h3 className="text-base font-bold text-gray-900">Edit Order</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{editOrder.shop.name} · #{editOrder.id.slice(0, 8)}</p>
               </div>
-              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); }}
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); setNewProductFree(false); }}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1087,6 +1090,15 @@ export default function OrderManagement() {
                     Add
                   </button>
                 </div>
+                <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={newProductFree}
+                    onChange={(e) => setNewProductFree(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-400"
+                  />
+                  <span className="text-sm text-gray-700">Add as free item (no charge)</span>
+                </label>
               </div>
 
               {editError && (
@@ -1100,7 +1112,7 @@ export default function OrderManagement() {
             </div>
 
             <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-100">
-              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); }} disabled={editLoading}
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); setNewProductFree(false); }} disabled={editLoading}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
                 Cancel
               </button>
