@@ -1303,42 +1303,47 @@ export default function BillsCollectionsScreen() {
             <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
               <View style={StyleSheet.absoluteFill} />
             </TouchableWithoutFeedback>
-            <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Return Products</Text>
-            {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
-            <View style={styles.returnList}>
-              {returnItems.map((item) => (
-                <View key={item._rowKey} style={styles.returnRow}>
-                  <View style={styles.returnText}>
-                    <Text style={styles.returnTitle}>{item.name}</Text>
-                    <Text style={styles.returnMeta}>
-                      Ordered: {item.quantity} Â· Unit: {item.unit_price.toFixed(2)} LKR
-                    </Text>
+            <View style={[styles.modalCard, styles.returnModalCard]}>
+              <Text style={styles.modalTitle}>Return Products</Text>
+              {returnError ? <Text style={styles.errorText}>{returnError}</Text> : null}
+              <ScrollView
+                style={styles.returnScroll}
+                contentContainerStyle={styles.returnList}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+              >
+                {returnItems.map((item) => (
+                  <View key={item._rowKey} style={styles.returnRow}>
+                    <View style={styles.returnText}>
+                      <Text style={styles.returnTitle}>{item.name}</Text>
+                      <Text style={styles.returnMeta}>
+                        Ordered: {item.quantity} | Unit: {item.unit_price.toFixed(2)} LKR
+                      </Text>
+                    </View>
+                    <TextInput
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
+                      style={styles.returnInput}
+                      keyboardType="numeric"
+                      value={returnQuantities[item._rowKey] ? String(returnQuantities[item._rowKey]) : ''}
+                      onChangeText={(value) => {
+                        const trimmed = value.trim();
+                        const qty = trimmed === '' ? 0 : Number(trimmed);
+                        setReturnQuantities((prev) => ({ ...prev, [item._rowKey]: qty }));
+                      }}
+                    />
                   </View>
-                  <TextInput
-                    placeholder="0"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.returnInput}
-                    keyboardType="numeric"
-                    value={returnQuantities[item._rowKey] ? String(returnQuantities[item._rowKey]) : ''}
-                    onChangeText={(value) => {
-                      const trimmed = value.trim();
-                      const qty = trimmed === '' ? 0 : Number(trimmed);
-                      setReturnQuantities((prev) => ({ ...prev, [item._rowKey]: qty }));
-                    }}
-                  />
-                </View>
-              ))}
+                ))}
+              </ScrollView>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.actionSecondary} onPress={() => setShowReturnModal(false)}>
+                  <Text style={styles.actionText}>Close</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.actionPrimary} onPress={submitReturn} disabled={returnLoading}>
+                  <Text style={styles.actionTextOnAccent}>{returnLoading ? 'Saving...' : 'Record Return'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.actionSecondary} onPress={() => setShowReturnModal(false)}>
-                <Text style={styles.actionText}>Close</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.actionPrimary} onPress={submitReturn} disabled={returnLoading}>
-                <Text style={styles.actionTextOnAccent}>{returnLoading ? 'Saving...' : 'Record Return'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1772,9 +1777,19 @@ const makeStyles = (colors: ThemeColors) =>
     gap: 8,
     marginTop: 6,
   },
+  returnModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    maxHeight: '90%',
+    alignSelf: 'center',
+  },
+  returnScroll: {
+    flexShrink: 1,
+  },
   returnList: {
     gap: 10,
     marginTop: 4,
+    paddingBottom: 4,
   },
   returnRow: {
     flexDirection: 'row',
