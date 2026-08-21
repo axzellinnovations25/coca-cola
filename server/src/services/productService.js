@@ -2147,7 +2147,15 @@ async function getRepresentativeCollections(sales_rep_id) {
       s.phone as shop_phone,
       u.first_name as sales_rep_first_name,
       u.last_name as sales_rep_last_name,
-      u.email as sales_rep_email
+      u.email as sales_rep_email,
+      COALESCE(
+        SUM(CAST(p.amount AS numeric)) OVER (
+          PARTITION BY p.order_id
+          ORDER BY p.created_at, p.id
+          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+        ),
+        0
+      ) as previous_collected
     FROM payments p
     JOIN orders o ON p.order_id = o.id
     JOIN shops s ON o.shop_id = s.id
@@ -2156,16 +2164,9 @@ async function getRepresentativeCollections(sales_rep_id) {
     ORDER BY p.created_at DESC
   `, [sales_rep_id]);
 
-  // Process the results to add calculated fields
-  const collections = await Promise.all(result.rows.map(async (row) => {
-    // Get total collected for this order before this payment
-    const previousPaymentsRes = await pool.query(`
-      SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as previous_collected
-      FROM payments 
-      WHERE order_id = $1 AND created_at < $2
-    `, [row.order_id, row.payment_date]);
-    
-    const previousCollected = Number(previousPaymentsRes.rows[0]?.previous_collected || 0);
+  // The window value replaces one extra database query per payment row.
+  const collections = result.rows.map((row) => {
+    const previousCollected = Number(row.previous_collected || 0);
     const outstandingBeforePayment = Number(row.order_total) - previousCollected;
     const outstandingAfterPayment = outstandingBeforePayment - Number(row.amount);
     
@@ -2194,7 +2195,7 @@ async function getRepresentativeCollections(sales_rep_id) {
       outstanding_after_payment: outstandingAfterPayment,
       collection_percentage: ((Number(row.amount) / Number(row.order_total)) * 100).toFixed(2)
     };
-  }));
+  });
 
   return collections;
 }

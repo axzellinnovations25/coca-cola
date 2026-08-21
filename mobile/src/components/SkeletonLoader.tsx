@@ -26,49 +26,6 @@ function SkeletonBox({ width, height, style }: { width: any; height: number; sty
   );
 }
 
-export function DashboardSkeleton() {
-  const colors = useThemeColors();
-  return (
-    <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 12, gap: 14, backgroundColor: colors.background }}>
-      {/* Header card */}
-      <View style={{ backgroundColor: colors.surface, borderRadius: 24, padding: 20, gap: 14 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <SkeletonBox width={140} height={32} style={{ borderRadius: 10 }} />
-          <SkeletonBox width={80} height={28} style={{ borderRadius: 999 }} />
-        </View>
-        <SkeletonBox width={210} height={16} style={{ borderRadius: 6 }} />
-        <View style={{ flexDirection: 'row', gap: 12, marginTop: 4 }}>
-          <SkeletonBox width="48%" height={80} style={{ borderRadius: 16 }} />
-          <SkeletonBox width="48%" height={80} style={{ borderRadius: 16 }} />
-        </View>
-      </View>
-      {/* Stat grid */}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-        {[0, 1, 2, 3].map((i) => (
-          <SkeletonBox key={i} width="48%" height={100} style={{ borderRadius: 20 }} />
-        ))}
-      </View>
-      {/* Section card */}
-      <View style={{ backgroundColor: colors.surface, borderRadius: 20, padding: 18, gap: 12 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-          <SkeletonBox width={120} height={20} style={{ borderRadius: 6 }} />
-          <SkeletonBox width={60} height={16} style={{ borderRadius: 6 }} />
-        </View>
-        {[0, 1, 2].map((i) => (
-          <SkeletonBox key={i} width="100%" height={64} style={{ borderRadius: 14 }} />
-        ))}
-      </View>
-      {/* Second section card */}
-      <View style={{ backgroundColor: colors.surface, borderRadius: 20, padding: 18, gap: 12 }}>
-        <SkeletonBox width={140} height={20} style={{ borderRadius: 6 }} />
-        {[0, 1].map((i) => (
-          <SkeletonBox key={i} width="100%" height={64} style={{ borderRadius: 14 }} />
-        ))}
-      </View>
-    </View>
-  );
-}
-
 export function ListSkeleton({ rows = 4 }: { rows?: number }) {
   const colors = useThemeColors();
   return (

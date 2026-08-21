@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Platform,
@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { apiFetch } from '../api/api';
+import { apiFetchCached, getCachedApiData } from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
@@ -26,11 +26,18 @@ interface Shop {
   active_bills: number;
 }
 
+const SHOPS_PATH = '/api/marudham/shops/assigned';
+const SHOPS_CACHE_MS = 2 * 60 * 1000;
+
+type ShopsResponse = { shops?: Shop[] };
+
 export default function MyShopsScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedResponse = getCachedApiData<ShopsResponse>(SHOPS_PATH);
+  const [shops, setShops] = useState<Shop[]>(() => cachedResponse?.shops || []);
+  const [loading, setLoading] = useState(() => !cachedResponse);
+  const hasLoadedData = useRef(Boolean(cachedResponse));
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [outstandingOnly, setOutstandingOnly] = useState(false);
@@ -38,14 +45,25 @@ export default function MyShopsScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchShops = useCallback(async (silent = false) => {
+  const fetchShops = useCallback(async (silent = false, force = false) => {
+    const cached = getCachedApiData<ShopsResponse>(SHOPS_PATH);
     try {
-      if (!silent) setLoading(true);
+      if (cached) {
+        setShops(cached.shops || []);
+        hasLoadedData.current = true;
+        setLoading(false);
+      } else if (!silent) {
+        setLoading(true);
+      }
       setError('');
-      const data = await apiFetch('/api/marudham/shops/assigned');
+      const data = await apiFetchCached<ShopsResponse>(SHOPS_PATH, {
+        maxAgeMs: SHOPS_CACHE_MS,
+        force,
+      });
       setShops(data.shops || []);
+      hasLoadedData.current = true;
     } catch (err: any) {
-      setError(err.message);
+      if (!hasLoadedData.current) setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -54,12 +72,12 @@ export default function MyShopsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchShops(true);
+    fetchShops(true, true);
   }, [fetchShops]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchShops();
+      fetchShops(true);
     }, [fetchShops]),
   );
 
@@ -79,7 +97,7 @@ export default function MyShopsScreen() {
     return <ListSkeleton rows={5} />;
   }
 
-  if (error) {
+  if (error && !hasLoadedData.current) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading shops</Text>

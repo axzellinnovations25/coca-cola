@@ -21,7 +21,12 @@ import {
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { apiFetch } from "../api/api";
+import {
+  apiFetch,
+  apiFetchCached,
+  getCachedApiData,
+  invalidateApiCache,
+} from "../api/api";
 import { ThemeColors, useThemeColors } from "../theme/colors";
 
 interface Order {
@@ -145,13 +150,25 @@ const formatDate = (
 };
 
 const statusOptions = ["all", "pending", "approved", "rejected"];
+const ORDERS_PATH = "/api/marudham/orders";
+const PENDING_ORDERS_PATH = "/api/marudham/orders/pending";
+const PRODUCTS_PATH = "/api/marudham/order-products";
+const REFERENCE_CACHE_MS = 2 * 60 * 1000;
+
+type OrdersResponse = { orders?: Order[] };
+type ProductsResponse = { products?: Product[] };
 
 export default function MyOrdersScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [pendingOrders, setPendingOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedOrders = getCachedApiData<OrdersResponse>(ORDERS_PATH);
+  const hasCompleteCache = Boolean(cachedOrders);
+  const [orders, setOrders] = useState<Order[]>(() => cachedOrders?.orders || []);
+  const [pendingOrders, setPendingOrders] = useState<Order[]>(() =>
+    (cachedOrders?.orders || []).filter((order) => order.status === "pending"),
+  );
+  const [loading, setLoading] = useState(() => !hasCompleteCache);
+  const hasLoadedData = useRef(hasCompleteCache);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -175,7 +192,13 @@ export default function MyOrdersScreen() {
   const [editNotes, setEditNotes] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState("");
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => {
+    const cached = getCachedApiData<ProductsResponse>(PRODUCTS_PATH);
+    return (cached?.products || []).map((product) => ({
+      ...product,
+      unit_price: Number(product.unit_price),
+    }));
+  });
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState("");
   const [newProductId, setNewProductId] = useState("");
@@ -196,18 +219,26 @@ export default function MyOrdersScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchOrders = useCallback(async (silent = false) => {
+  const fetchOrders = useCallback(async (silent = false, force = true) => {
+    const cachedOrdersData = getCachedApiData<OrdersResponse>(ORDERS_PATH);
     try {
-      if (!silent) setLoading(true);
+      if (cachedOrdersData) {
+        const cachedList = cachedOrdersData.orders || [];
+        setOrders(cachedList);
+        setPendingOrders(cachedList.filter((order) => order.status === "pending"));
+        hasLoadedData.current = true;
+        setLoading(false);
+      } else if (!silent) {
+        setLoading(true);
+      }
       setError("");
-      const [ordersData, pendingData] = await Promise.all([
-        apiFetch("/api/marudham/orders"),
-        apiFetch("/api/marudham/orders/pending"),
-      ]);
-      setOrders(ordersData.orders || []);
-      setPendingOrders(pendingData.orders || []);
+      const ordersData = await apiFetchCached<OrdersResponse>(ORDERS_PATH, { force });
+      const loadedOrders = ordersData.orders || [];
+      setOrders(loadedOrders);
+      setPendingOrders(loadedOrders.filter((order) => order.status === "pending"));
+      hasLoadedData.current = true;
     } catch (err: any) {
-      setError(err.message);
+      if (!hasLoadedData.current) setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -216,12 +247,12 @@ export default function MyOrdersScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchOrders(true);
+    fetchOrders(true, true);
   }, [fetchOrders]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchOrders();
+      fetchOrders(true, true);
     }, [fetchOrders]),
   );
 
@@ -262,8 +293,10 @@ export default function MyOrdersScreen() {
   };
 
   const loadProducts = async (force = false) => {
-    if (!force && products.length > 0) return products;
-    const response = await apiFetch("/api/marudham/order-products");
+    const response = await apiFetchCached<ProductsResponse>(PRODUCTS_PATH, {
+      maxAgeMs: REFERENCE_CACHE_MS,
+      force,
+    });
     const loaded = (response.products || []).map((product: any) => ({
       id: product.id,
       name: product.name,
@@ -279,7 +312,7 @@ export default function MyOrdersScreen() {
     setShowProductPicker(true);
     setProductsLoading(true);
     try {
-      await loadProducts(true);
+      await loadProducts();
     } catch (err: any) {
       setProductsError(err.message || "Failed to load products.");
     } finally {
@@ -338,7 +371,14 @@ export default function MyOrdersScreen() {
       setEditNotes("");
       setNewProductId("");
       setNewProductQty("");
-      fetchOrders();
+      invalidateApiCache([
+        ORDERS_PATH,
+        PENDING_ORDERS_PATH,
+        PRODUCTS_PATH,
+        "/api/marudham/shops/assigned",
+        "/api/marudham/bills/representative",
+      ]);
+      fetchOrders(true, true);
     } catch (err: any) {
       setEditError(err.message || "Failed to update order.");
     } finally {
@@ -440,7 +480,7 @@ export default function MyOrdersScreen() {
     );
   }
 
-  if (error) {
+  if (error && !hasLoadedData.current) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading orders</Text>

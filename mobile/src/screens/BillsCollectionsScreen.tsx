@@ -23,7 +23,12 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ThermalPrinterModule from 'react-native-thermal-printer';
 import { Ionicons } from '@expo/vector-icons';
-import { apiFetch } from '../api/api';
+import {
+  apiFetch,
+  apiFetchCached,
+  getCachedApiData,
+  invalidateApiCache,
+} from '../api/api';
 import { ListSkeleton } from '../components/SkeletonLoader';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import { getSavedIosPrinterName, printReceiptLinesOnIos, selectIosPrinter } from '../utils/printing';
@@ -238,11 +243,16 @@ const formatDate = (value: string | number | null | undefined) => {
   return d ? d.toLocaleDateString() : '--';
 };
 
+const BILLS_PATH = '/api/marudham/bills/representative';
+type BillsResponse = { bills?: ShopWithBills[] };
+
 export default function BillsCollectionsScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [shops, setShops] = useState<ShopWithBills[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedBills = getCachedApiData<BillsResponse>(BILLS_PATH);
+  const [shops, setShops] = useState<ShopWithBills[]>(() => cachedBills?.bills || []);
+  const [loading, setLoading] = useState(() => !cachedBills);
+  const hasLoadedData = useRef(Boolean(cachedBills));
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedShopId, setExpandedShopId] = useState<string | null>(null);
@@ -280,17 +290,22 @@ export default function BillsCollectionsScreen() {
   const [returnError, setReturnError] = useState('');
 
   const [refreshing, setRefreshing] = useState(false);
-  const lastFetchedAt = useRef(0);
-
-  const fetchBills = useCallback(async (silent = false) => {
+  const fetchBills = useCallback(async (silent = false, force = true) => {
+    const cached = getCachedApiData<BillsResponse>(BILLS_PATH);
     try {
-      if (!silent) setLoading(true);
+      if (cached) {
+        setShops(cached.bills || []);
+        hasLoadedData.current = true;
+        setLoading(false);
+      } else if (!silent) {
+        setLoading(true);
+      }
       setError('');
-      const data = await apiFetch('/api/marudham/bills/representative');
+      const data = await apiFetchCached<BillsResponse>(BILLS_PATH, { force });
       setShops(data.bills || []);
-      lastFetchedAt.current = Date.now();
+      hasLoadedData.current = true;
     } catch (err: any) {
-      setError(err.message);
+      if (!hasLoadedData.current) setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -299,16 +314,12 @@ export default function BillsCollectionsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchBills(true);
+    fetchBills(true, true);
   }, [fetchBills]);
 
   useFocusEffect(
     useCallback(() => {
-      const now = Date.now();
-      const isStale = now - lastFetchedAt.current > 30_000;
-      if (isStale) {
-        fetchBills(lastFetchedAt.current > 0); // silent if previously loaded
-      }
+      fetchBills(true, true);
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
           if (savedMac) setSelectedPrinterMac(savedMac);
@@ -423,7 +434,13 @@ export default function BillsCollectionsScreen() {
       setSelectedBill(null);
       setPaymentAmount('');
       setPaymentNotes('');
-      fetchBills(true);
+      invalidateApiCache([
+        BILLS_PATH,
+        '/api/marudham/collections/representative',
+        '/api/marudham/shops/assigned',
+        '/api/marudham/orders',
+      ]);
+      fetchBills(true, true);
     } catch (err: any) {
       setPaymentError(err.message);
     } finally {
@@ -457,7 +474,13 @@ export default function BillsCollectionsScreen() {
       setReturnOrderId(null);
       setReturnItems([]);
       setReturnQuantities({});
-      fetchBills(true);
+      invalidateApiCache([
+        BILLS_PATH,
+        '/api/marudham/shops/assigned',
+        '/api/marudham/orders',
+        '/api/marudham/order-products',
+      ]);
+      fetchBills(true, true);
     } catch (err: any) {
       setReturnError(err.message || 'Failed to record return');
     } finally {
@@ -834,7 +857,7 @@ export default function BillsCollectionsScreen() {
     return <ListSkeleton rows={4} />;
   }
 
-  if (error) {
+  if (error && !hasLoadedData.current) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading bills</Text>

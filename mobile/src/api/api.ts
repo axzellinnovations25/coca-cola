@@ -20,6 +20,46 @@ type StoredItem<T> = {
   expiration: number;
 };
 
+type ApiCacheEntry<T = any> = {
+  data: T;
+  updatedAt: number;
+};
+
+const apiCache = new Map<string, ApiCacheEntry>();
+const inFlightRequests = new Map<string, Promise<any>>();
+const cacheVersions = new Map<string, number>();
+
+const getCacheKey = (path: string) => path;
+
+export function getCachedApiData<T>(path: string): T | undefined {
+  return apiCache.get(getCacheKey(path))?.data as T | undefined;
+}
+
+export function getApiCacheAge(path: string): number | null {
+  const entry = apiCache.get(getCacheKey(path));
+  return entry ? Date.now() - entry.updatedAt : null;
+}
+
+export function invalidateApiCache(paths?: string[]) {
+  if (!paths?.length) {
+    apiCache.clear();
+    for (const key of inFlightRequests.keys()) {
+      cacheVersions.set(key, (cacheVersions.get(key) || 0) + 1);
+    }
+    inFlightRequests.clear();
+    return;
+  }
+
+  const knownKeys = new Set([...apiCache.keys(), ...inFlightRequests.keys(), ...paths]);
+  for (const key of knownKeys) {
+    if (paths.some((path) => key === path || key.startsWith(`${path}/`) || key.startsWith(`${path}?`))) {
+      apiCache.delete(key);
+      inFlightRequests.delete(key);
+      cacheVersions.set(key, (cacheVersions.get(key) || 0) + 1);
+    }
+  }
+}
+
 async function setPersistentStorage<T>(key: string, value: T, expirationDays = 5) {
   const item: StoredItem<T> = {
     value,
@@ -147,7 +187,39 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   }
 }
 
+export async function apiFetchCached<T = any>(
+  path: string,
+  { maxAgeMs = 0, force = false }: { maxAgeMs?: number; force?: boolean } = {},
+): Promise<T> {
+  const key = getCacheKey(path);
+  const cached = apiCache.get(key);
+  if (!force && cached && Date.now() - cached.updatedAt <= maxAgeMs) {
+    return cached.data as T;
+  }
+
+  const existingRequest = inFlightRequests.get(key);
+  if (existingRequest) return existingRequest as Promise<T>;
+
+  const requestVersion = cacheVersions.get(key) || 0;
+  const request = apiFetch(path)
+    .then((data) => {
+      if ((cacheVersions.get(key) || 0) === requestVersion) {
+        apiCache.set(key, { data, updatedAt: Date.now() });
+      }
+      return data as T;
+    })
+    .finally(() => {
+      if (inFlightRequests.get(key) === request) {
+        inFlightRequests.delete(key);
+      }
+    });
+
+  inFlightRequests.set(key, request);
+  return request;
+}
+
 export async function clearSession() {
+  invalidateApiCache();
   await clearPersistentStorage('token');
   await clearPersistentStorage('sessionInfo');
 }

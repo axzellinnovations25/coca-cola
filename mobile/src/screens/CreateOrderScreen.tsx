@@ -19,7 +19,12 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ThermalPrinterModule from 'react-native-thermal-printer';
-import { apiFetch } from '../api/api';
+import {
+  apiFetch,
+  apiFetchCached,
+  getCachedApiData,
+  invalidateApiCache,
+} from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 import DismissKeyboard from '../components/DismissKeyboard';
 import {
@@ -47,6 +52,13 @@ interface Product {
   available_stock: number;
   units_per_case?: number;
 }
+
+const SHOPS_PATH = '/api/marudham/shops/assigned';
+const PRODUCTS_PATH = '/api/marudham/order-products';
+const REFERENCE_CACHE_MS = 2 * 60 * 1000;
+
+type ShopsResponse = { shops?: Shop[] };
+type ProductsResponse = { products?: Product[] };
 
 interface OrderItem {
   product_id: string;
@@ -262,11 +274,14 @@ export default function CreateOrderScreen() {
   const bottomTabBarHeight = useBottomTabBarHeight();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [shops, setShops] = useState<Shop[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const cachedShops = getCachedApiData<ShopsResponse>(SHOPS_PATH);
+  const cachedProducts = getCachedApiData<ProductsResponse>(PRODUCTS_PATH);
+  const hasCompleteCache = Boolean(cachedShops && cachedProducts);
+  const [shops, setShops] = useState<Shop[]>(() => cachedShops?.shops || []);
+  const [products, setProducts] = useState<Product[]>(() => cachedProducts?.products || []);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !hasCompleteCache);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -310,21 +325,30 @@ export default function CreateOrderScreen() {
     };
   }, [receipt?.created_at]);
 
-  const lastFetchedAt = useRef(0);
+  const hasLoadedData = useRef(hasCompleteCache);
 
-  const fetchData = useCallback(async (silent = false) => {
+  const fetchData = useCallback(async (silent = false, force = false) => {
+    const cachedShopData = getCachedApiData<ShopsResponse>(SHOPS_PATH);
+    const cachedProductData = getCachedApiData<ProductsResponse>(PRODUCTS_PATH);
     try {
-      if (!silent) setLoading(true);
+      if (cachedShopData && cachedProductData) {
+        setShops(cachedShopData.shops || []);
+        setProducts(cachedProductData.products || []);
+        hasLoadedData.current = true;
+        setLoading(false);
+      } else if (!silent) {
+        setLoading(true);
+      }
       setError('');
       const [shopData, productData] = await Promise.all([
-        apiFetch('/api/marudham/shops/assigned'),
-        apiFetch('/api/marudham/order-products'),
+        apiFetchCached<ShopsResponse>(SHOPS_PATH, { maxAgeMs: REFERENCE_CACHE_MS, force }),
+        apiFetchCached<ProductsResponse>(PRODUCTS_PATH, { maxAgeMs: REFERENCE_CACHE_MS, force }),
       ]);
       setShops(shopData.shops || []);
       setProducts(productData.products || []);
-      lastFetchedAt.current = Date.now();
+      hasLoadedData.current = true;
     } catch (err: any) {
-      setError(err.message);
+      if (!hasLoadedData.current) setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -333,36 +357,13 @@ export default function CreateOrderScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchData(true);
+    fetchData(true, true);
   }, [fetchData]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      const now = Date.now();
-      const isStale = now - lastFetchedAt.current > 30_000;
-      if (isStale) {
-        const silent = lastFetchedAt.current > 0;
-        (async () => {
-          try {
-            if (!silent) setLoading(true);
-            setError('');
-            const [shopData, productData] = await Promise.all([
-              apiFetch('/api/marudham/shops/assigned'),
-              apiFetch('/api/marudham/order-products'),
-            ]);
-            if (cancelled) return;
-            setShops(shopData.shops || []);
-            setProducts(productData.products || []);
-            lastFetchedAt.current = Date.now();
-          } catch (err: any) {
-            if (cancelled) return;
-            setError(err.message);
-          } finally {
-            if (!cancelled) setLoading(false);
-          }
-        })();
-      }
+      fetchData(true);
       AsyncStorage.getItem(PRINTER_MAC_KEY)
         .then((savedMac) => {
           if (cancelled) return;
@@ -380,7 +381,7 @@ export default function CreateOrderScreen() {
         })
         .catch(() => {});
       return () => { cancelled = true; };
-    }, []),
+    }, [fetchData]),
   );
 
   const filteredShops = useMemo(() => {
@@ -565,6 +566,14 @@ export default function CreateOrderScreen() {
       setOrderItems([]);
       setSelectedShop(null);
       setShopSearch('');
+      invalidateApiCache([
+        '/api/marudham/orders',
+        '/api/marudham/orders/pending',
+        SHOPS_PATH,
+        PRODUCTS_PATH,
+        '/api/marudham/bills/representative',
+      ]);
+      fetchData(true, true);
       if (selectedShop.phone) {
         sendSMS(response.order.id).catch(() => {
           setMessageStatus({ type: 'error', message: 'Order created but SMS failed.' });

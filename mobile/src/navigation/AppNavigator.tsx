@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import BillsCollectionsScreen from '../screens/BillsCollectionsScreen';
 import CreateOrderScreen from '../screens/CreateOrderScreen';
-import DashboardScreen from '../screens/DashboardScreen';
 import LoginScreen from '../screens/LoginScreen';
 import MyCollectionScreen from '../screens/MyCollectionScreen';
 import MyOrdersScreen from '../screens/MyOrdersScreen';
@@ -148,15 +147,6 @@ function RepTabs() {
         headerTitle: 'S.B Distribution',
       }}
     >
-      <Tabs.Screen
-        name="Dashboard"
-        component={DashboardScreen}
-        options={{
-          tabBarIcon: ({ color, focused, size }) => (
-            <TabIcon name="grid-outline" activeName="grid" color={color} focused={focused} size={size} />
-          ),
-        }}
-      />
       <Tabs.Screen
         name="Create Order"
         component={CreateOrderScreen}

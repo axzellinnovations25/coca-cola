@@ -1,5 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { apiFetch } from '../api/api';
+import { apiFetchCached, getCachedApiData } from '../api/api';
 import { ThemeColors, useThemeColors } from '../theme/colors';
 
 interface Collection {
@@ -41,6 +41,9 @@ interface CollectionStats {
 }
 
 const dateFilters = ['all', 'today', 'this_week', 'this_month'];
+const COLLECTIONS_PATH = '/api/marudham/collections/representative';
+
+type CollectionsResponse = { collections?: Collection[] };
 
 const parseDate = (value: string | number | Date | null | undefined): Date | null => {
   if (value === null || value === undefined || value === '') return null;
@@ -115,30 +118,59 @@ const formatDate = (value: string | number | null | undefined): string => {
   return d ? d.toLocaleDateString() : '--';
 };
 
+const buildCollectionStats = (collections: Collection[]): CollectionStats => {
+  const now = new Date();
+  const today = collections.filter((collection) => parseDate(collection.payment_date)?.toDateString() === now.toDateString());
+  const thisMonth = collections.filter((collection) => {
+    const date = parseDate(collection.payment_date);
+    return date?.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  });
+  const sum = (items: Collection[]) => items.reduce((total, item) => total + Number(item.payment_amount || 0), 0);
+  return {
+    total_collections: collections.length,
+    total_amount_collected: sum(collections),
+    today: { collections: today.length, amount: sum(today) },
+    this_month: { collections: thisMonth.length, amount: sum(thisMonth) },
+  };
+};
+
 export default function MyCollectionScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [stats, setStats] = useState<CollectionStats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedCollections = getCachedApiData<CollectionsResponse>(COLLECTIONS_PATH);
+  const hasCompleteCache = Boolean(cachedCollections);
+  const [collections, setCollections] = useState<Collection[]>(() => cachedCollections?.collections || []);
+  const [stats, setStats] = useState<CollectionStats | null>(() =>
+    cachedCollections ? buildCollectionStats(cachedCollections.collections || []) : null,
+  );
+  const [loading, setLoading] = useState(() => !hasCompleteCache);
+  const hasLoadedData = useRef(hasCompleteCache);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
 
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchCollections = useCallback(async (silent = false) => {
+  const fetchCollections = useCallback(async (silent = false, force = true) => {
+    const cachedCollectionsData = getCachedApiData<CollectionsResponse>(COLLECTIONS_PATH);
     try {
-      if (!silent) setLoading(true);
+      if (cachedCollectionsData) {
+        const cachedList = cachedCollectionsData.collections || [];
+        setCollections(cachedList);
+        setStats(buildCollectionStats(cachedList));
+        hasLoadedData.current = true;
+        setLoading(false);
+      } else if (!silent) {
+        setLoading(true);
+      }
       setError('');
-      const [collectionsData, statsData] = await Promise.all([
-        apiFetch('/api/marudham/collections/representative'),
-        apiFetch('/api/marudham/collections/representative/stats'),
-      ]);
-      setCollections(collectionsData.collections || []);
-      setStats(statsData.stats || null);
+      const collectionsData = await apiFetchCached<CollectionsResponse>(COLLECTIONS_PATH, { force });
+      const loadedCollections = collectionsData.collections || [];
+      setCollections(loadedCollections);
+      setStats(buildCollectionStats(loadedCollections));
+      hasLoadedData.current = true;
     } catch (err: any) {
-      setError(err.message);
+      if (!hasLoadedData.current) setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -147,12 +179,12 @@ export default function MyCollectionScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    fetchCollections(true);
+    fetchCollections(true, true);
   }, [fetchCollections]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchCollections();
+      fetchCollections(true, true);
     }, [fetchCollections]),
   );
 
@@ -196,7 +228,7 @@ export default function MyCollectionScreen() {
     );
   }
 
-  if (error) {
+  if (error && !hasLoadedData.current) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorTitle}>Error loading collections</Text>
