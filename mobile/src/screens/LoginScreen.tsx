@@ -16,6 +16,7 @@ import {
 import DismissKeyboard from '../components/DismissKeyboard';
 import { useAuth } from '../context/AuthContext';
 import { ThemeColors, useThemeColors } from '../theme/colors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const PRIVACY_POLICY_URL = 'https://sbdistribution.store/privacy-policy/';
 
@@ -23,6 +24,7 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,9 +54,14 @@ export default function LoginScreen() {
         end={{ x: 1, y: 1 }}
       >
         <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 44 : 0}
+          style={[
+            styles.container,
+            {
+              paddingTop: Math.max(insets.top, 24),
+              paddingBottom: Math.max(insets.bottom, 24),
+            },
+          ]}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <ScrollView
             contentContainerStyle={styles.scrollContent}

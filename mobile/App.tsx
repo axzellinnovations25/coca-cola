@@ -3,6 +3,7 @@ import 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useState } from 'react';
 import { View, useColorScheme } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { AuthProvider } from './src/context/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -22,11 +23,13 @@ export default function App() {
   }, [rootLaidOut]);
 
   return (
-    <AuthProvider>
-      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-      <View style={{ flex: 1 }} onLayout={onRootLayout}>
-        {showIntro ? <IntroSplashScreen onFinish={() => setShowIntro(false)} /> : <AppNavigator />}
-      </View>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+        <View style={{ flex: 1 }} onLayout={onRootLayout}>
+          {showIntro ? <IntroSplashScreen onFinish={() => setShowIntro(false)} /> : <AppNavigator />}
+        </View>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

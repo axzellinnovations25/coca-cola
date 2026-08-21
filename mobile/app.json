@@ -53,6 +53,7 @@
         "backgroundColor": "#0f766e"
       },
       "edgeToEdgeEnabled": true,
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.thushanth.motionreprep"
     },

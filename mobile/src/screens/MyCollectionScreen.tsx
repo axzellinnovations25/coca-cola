@@ -252,19 +252,19 @@ export default function MyCollectionScreen() {
         <Text style={styles.subtitle}>Track all your payment collections.</Text>
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats?.total_collections || 0}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats?.total_collections || 0}</Text>
             <Text style={styles.statLabel}>Total</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats?.total_amount_collected?.toFixed(0) || 0}</Text>
-            <Text style={styles.statLabel}>LKR Collected</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats?.total_amount_collected?.toFixed(0) || 0}</Text>
+            <Text style={styles.statLabel}>Collected</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats?.this_month?.amount?.toFixed(0) || 0}</Text>
-            <Text style={styles.statLabel}>This Month</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats?.this_month?.amount?.toFixed(0) || 0}</Text>
+            <Text style={styles.statLabel}>Month</Text>
           </View>
           <View style={styles.statBox}>
-            <Text style={styles.statValue}>{stats?.today?.amount?.toFixed(0) || 0}</Text>
+            <Text style={styles.statValue} numberOfLines={1} adjustsFontSizeToFit>{stats?.today?.amount?.toFixed(0) || 0}</Text>
             <Text style={styles.statLabel}>Today</Text>
           </View>
         </View>
@@ -388,9 +388,9 @@ const makeStyles = (colors: ThemeColors) =>
     marginBottom: 4,
   },
   headerBanner: {
-    padding: 20,
-    paddingBottom: 32,
-    gap: 14,
+    padding: 16,
+    paddingBottom: 25,
+    gap: 8,
   },
   searchCard: {
     backgroundColor: colors.surface,
@@ -419,28 +419,36 @@ const makeStyles = (colors: ThemeColors) =>
   },
   statsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 6,
+    width: '100%',
   },
   statBox: {
-    flexBasis: '48%',
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderRadius: 14,
-    padding: 14,
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '24%',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.25)',
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
   },
   statValue: {
     color: '#FFFFFF',
     fontWeight: '800',
-    fontSize: 22,
-    letterSpacing: -0.3,
+    fontSize: 14,
+    width: '100%',
+    textAlign: 'center',
   },
   statLabel: {
     color: 'rgba(255,255,255,0.75)',
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: '600',
-    marginTop: 4,
+    marginTop: 2,
+    textAlign: 'center',
   },
   input: {
     backgroundColor: colors.surfaceMuted,

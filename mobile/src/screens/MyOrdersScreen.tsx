@@ -10,9 +10,11 @@ import {
   ActivityIndicator,
   FlatList,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -642,7 +644,10 @@ export default function MyOrdersScreen() {
         animationType="slide"
         onRequestClose={() => setSelectedOrder(null)}
       >
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Order Details</Text>
             {loadingDetails ? (
@@ -765,7 +770,7 @@ export default function MyOrdersScreen() {
               </>
             )}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -774,7 +779,10 @@ export default function MyOrdersScreen() {
         animationType="slide"
         onRequestClose={() => setEditOrder(null)}
       >
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={StyleSheet.absoluteFill} />
           </TouchableWithoutFeedback>
@@ -784,7 +792,12 @@ export default function MyOrdersScreen() {
               <Text style={styles.errorText}>{editError}</Text>
             ) : null}
             <Text style={styles.modalLabel}>Items</Text>
-            <View style={styles.editItems}>
+            <ScrollView
+              style={styles.editItems}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              nestedScrollEnabled
+            >
               {editItems.map((item) => (
                 <View key={item.line_key} style={styles.editRow}>
                   <View style={styles.editText}>
@@ -822,7 +835,7 @@ export default function MyOrdersScreen() {
                   </TouchableOpacity>
                 </View>
               ))}
-            </View>
+            </ScrollView>
 
             <Text style={styles.modalLabel}>Add Item</Text>
             <View style={styles.addRow}>
@@ -939,7 +952,7 @@ export default function MyOrdersScreen() {
               </View>
             </View>
           )}
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1301,7 +1314,7 @@ const makeStyles = (colors: ThemeColors) =>
       marginTop: 2,
     },
     editItems: {
-      gap: 8,
+      maxHeight: 220,
     },
     editRow: {
       flexDirection: "row",
@@ -1312,6 +1325,7 @@ const makeStyles = (colors: ThemeColors) =>
       borderRadius: 10,
       borderWidth: 1,
       borderColor: colors.border,
+      marginBottom: 8,
     },
     editText: {
       flex: 1,

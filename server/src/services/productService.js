@@ -269,15 +269,17 @@ async function listAssignedShops(sales_rep_id) {
   const result = await pool.query(`
     SELECT s.*,
       COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric)
-          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
-          - (COALESCE((
-              SELECT SUM(odi.line_total::numeric)
-              FROM out_of_date_items odi
-              JOIN out_of_date od ON od.id = odi.out_of_date_id
-              WHERE od.order_id = o.id
-            ), 0) * 0.4)
-        WHEN o.status = 'pending' THEN o.total::numeric
+        WHEN o.status = 'approved' THEN GREATEST(
+          (o.total::numeric)
+            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
+            - (COALESCE((
+                SELECT SUM(odi.line_total::numeric)
+                FROM out_of_date_items odi
+                JOIN out_of_date od ON od.id = odi.out_of_date_id
+                WHERE od.order_id = o.id
+              ), 0) * 0.4),
+          0
+        )
         ELSE 0
       END), 0) as current_outstanding,
       (SELECT COUNT(*) FROM orders o2
