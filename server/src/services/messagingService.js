@@ -292,7 +292,10 @@ function formatPaymentMessage(payment, order, shop, remainingBillsCount, type = 
   message += `Payment Details:\n`;
   message += `Amount Paid: ${Number(payment.amount).toFixed(2)} LKR\n`;
   message += `Order Total: ${Number(order.total).toFixed(2)} LKR\n`;
-  message += `Outstanding: ${Number(order.total - payment.collected).toFixed(2)} LKR\n`;
+  if (Number(order.approved_credit || 0) > 0) {
+    message += `Approved Credits: ${Number(order.approved_credit).toFixed(2)} LKR\n`;
+  }
+  message += `Outstanding: ${Number(payment.outstanding ?? (order.total - payment.collected)).toFixed(2)} LKR\n`;
   message += `Remaining Bills: ${remainingBillsCount}\n\n`;
   
   if (payment.notes) {

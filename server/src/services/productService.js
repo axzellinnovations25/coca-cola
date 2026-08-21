@@ -1,6 +1,11 @@
 const pool = require('../db');
 const messagingService = require('./messagingService');
 const { createHash, randomUUID } = require('crypto');
+const {
+  ORDER_FINANCIALS_CTES,
+  getOrderFinancials,
+  getShopCreditSummary,
+} = require('./financialService');
 
 async function logProductAction({ product_id, user_id, action, details, client }) {
   const logId = randomUUID();
@@ -267,40 +272,25 @@ async function listShopLogs() {
 
 async function listAssignedShops(sales_rep_id) {
   const result = await pool.query(`
+    WITH ${ORDER_FINANCIALS_CTES},
+    shop_financials AS (
+      SELECT shop_id,
+        COALESCE(SUM(outstanding) FILTER (WHERE status = 'approved'), 0) AS collectible_outstanding,
+        COALESCE(SUM(gross_total) FILTER (WHERE status = 'pending'), 0) AS pending_order_value,
+        COUNT(*) FILTER (WHERE (status = 'approved' AND outstanding > 0) OR status = 'pending') AS active_bills
+      FROM order_financials
+      GROUP BY shop_id
+    )
     SELECT s.*,
-      COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN GREATEST(
-          (o.total::numeric)
-            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
-            - (COALESCE((
-                SELECT SUM(odi.line_total::numeric)
-                FROM out_of_date_items odi
-                JOIN out_of_date od ON od.id = odi.out_of_date_id
-                WHERE od.order_id = o.id
-              ), 0) * 0.4),
-          0
-        )
-        ELSE 0
-      END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2
-       WHERE o2.shop_id = s.id
-       AND (
-         (o2.status = 'approved' AND (
-            (o2.total::numeric)
-            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
-            - (COALESCE((
-                SELECT SUM(odi.line_total::numeric)
-                FROM out_of_date_items odi
-                JOIN out_of_date od ON od.id = odi.out_of_date_id
-                WHERE od.order_id = o2.id
-              ), 0) * 0.4)
-          ) > 0)
-         OR o2.status = 'pending'
-       )) as active_bills
+      COALESCE(sf.collectible_outstanding, 0) AS current_outstanding,
+      COALESCE(sf.collectible_outstanding, 0) AS collectible_outstanding,
+      COALESCE(sf.pending_order_value, 0) AS pending_order_value,
+      COALESCE(sf.collectible_outstanding, 0) + COALESCE(sf.pending_order_value, 0) AS credit_used,
+      GREATEST(s.max_bill_amount::numeric - COALESCE(sf.collectible_outstanding, 0) - COALESCE(sf.pending_order_value, 0), 0) AS available_credit,
+      COALESCE(sf.active_bills, 0) AS active_bills
     FROM shops s
-    LEFT JOIN orders o ON o.shop_id = s.id
+    LEFT JOIN shop_financials sf ON sf.shop_id = s.id
     WHERE s.sales_rep_id = $1
-    GROUP BY s.id, s.name, s.address, s.owner_nic, s.email, s.phone, s.sales_rep_id, s.max_bill_amount, s.max_active_bills, s.created_at, s.updated_at
     ORDER BY s.created_at DESC
   `, [sales_rep_id]);
   return result.rows;
@@ -399,47 +389,13 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
     }
 
     // Perform credit validation while holding the per-shop transaction lock.
-    const shopRes = await client.query(`
-      SELECT max_bill_amount, max_active_bills,
-        COALESCE(SUM(CASE
-          WHEN o.status = 'approved' THEN (o.total::numeric)
-            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
-            - (COALESCE((
-                SELECT SUM(odi.line_total::numeric)
-                FROM out_of_date_items odi
-                JOIN out_of_date od ON od.id = odi.out_of_date_id
-                WHERE od.order_id = o.id
-              ), 0) * 0.4)
-          WHEN o.status = 'pending' THEN o.total::numeric
-          ELSE 0
-        END), 0) as current_outstanding,
-        (SELECT COUNT(*) FROM orders o2
-         WHERE o2.shop_id = s.id
-         AND (
-           (o2.status = 'approved' AND (
-              (o2.total::numeric)
-              - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
-              - (COALESCE((
-                  SELECT SUM(odi.line_total::numeric)
-                  FROM out_of_date_items odi
-                  JOIN out_of_date od ON od.id = odi.out_of_date_id
-                  WHERE od.order_id = o2.id
-                ), 0) * 0.4)
-            ) > 0)
-           OR o2.status = 'pending'
-         )) as active_bills
-      FROM shops s
-      LEFT JOIN orders o ON o.shop_id = s.id
-      WHERE s.id = $1
-      GROUP BY s.id, s.max_bill_amount, s.max_active_bills
-    `, [shop_id]);
-    if (shopRes.rows.length === 0) throw new Error('Shop not found');
-    const shop = shopRes.rows[0];
-    const availableCredit = Number(shop.max_bill_amount) - Number(shop.current_outstanding);
+    const shop = await getShopCreditSummary(shop_id, client);
+    if (!shop) throw new Error('Shop not found');
+    const availableCredit = shop.available_credit;
     if (total > availableCredit) {
       throw new Error(`Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`);
     }
-    if (Number(shop.active_bills) >= Number(shop.max_active_bills)) {
+    if (shop.active_bills >= shop.max_active_bills) {
       throw new Error(`Shop has reached the maximum number of active bills (${shop.max_active_bills}).`);
     }
 
@@ -575,48 +531,13 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
 
   const total = normalizedItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
 
-  const shopRes = await pool.query(`
-    SELECT max_bill_amount, max_active_bills,
-      COALESCE(SUM(CASE
-        WHEN o.status = 'approved' THEN (o.total::numeric)
-          - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0)
-          - (COALESCE((
-              SELECT SUM(odi.line_total::numeric)
-              FROM out_of_date_items odi
-              JOIN out_of_date od ON od.id = odi.out_of_date_id
-              WHERE od.order_id = o.id
-            ), 0) * 0.4)
-        WHEN o.status = 'pending' AND o.id != $2 THEN o.total::numeric
-        ELSE 0
-      END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2
-       WHERE o2.shop_id = s.id
-       AND o2.id != $2
-       AND (
-         (o2.status = 'approved' AND (
-            (o2.total::numeric)
-            - COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o2.id), 0)
-            - (COALESCE((
-                SELECT SUM(odi.line_total::numeric)
-                FROM out_of_date_items odi
-                JOIN out_of_date od ON od.id = odi.out_of_date_id
-                WHERE od.order_id = o2.id
-              ), 0) * 0.4)
-          ) > 0)
-         OR o2.status = 'pending'
-       )) as active_bills
-    FROM shops s
-    LEFT JOIN orders o ON o.shop_id = s.id
-    WHERE s.id = $1
-    GROUP BY s.id, s.max_bill_amount, s.max_active_bills
-  `, [order.shop_id, order_id]);
-  if (shopRes.rows.length === 0) throw new Error('Shop not found');
-  const shop = shopRes.rows[0];
-  const availableCredit = Number(shop.max_bill_amount) - Number(shop.current_outstanding);
+  const shop = await getShopCreditSummary(order.shop_id, pool, order_id);
+  if (!shop) throw new Error('Shop not found');
+  const availableCredit = shop.available_credit;
   if (total > availableCredit) {
     throw new Error(`Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`);
   }
-  if (Number(shop.active_bills) >= Number(shop.max_active_bills)) {
+  if (shop.active_bills >= shop.max_active_bills) {
     throw new Error(`Shop has reached the maximum number of active bills (${shop.max_active_bills}).`);
   }
 
@@ -720,6 +641,9 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
   );
   if (orderRes.rows.length === 0) throw new Error('Order not found');
   const order = orderRes.rows[0];
+  if (order.status !== 'pending') {
+    throw new Error('Issued invoices are immutable; use a return and credit note instead');
+  }
 
   const normalizedItems = items.map(item => ({
     product_id: item.product_id,
@@ -1161,8 +1085,10 @@ async function billsForRepresentative(sales_rep_id) {
   if (shopIds.length === 0) return [];
   // Get all approved orders for these shops
   const ordersRes = await pool.query(`
+    WITH ${ORDER_FINANCIALS_CTES}
     SELECT o.id, o.shop_id, o.created_at, o.total,
-      COALESCE((SELECT SUM(CAST(p.amount AS numeric)) FROM payments p WHERE p.order_id = o.id), 0) as collected,
+      of.collected, of.out_of_date_credit, of.return_credit, of.approved_credit,
+      of.net_collectible, of.outstanding, of.customer_credit,
       COALESCE((
         SELECT SUM(odi.line_total::numeric)
         FROM out_of_date_items odi
@@ -1170,6 +1096,7 @@ async function billsForRepresentative(sales_rep_id) {
         WHERE od.order_id = o.id
       ), 0) as out_of_date_value
     FROM orders o
+    JOIN order_financials of ON of.order_id = o.id
     WHERE o.shop_id = ANY($1::text[])
     AND o.status = 'approved'
     ORDER BY o.created_at DESC
@@ -1187,11 +1114,11 @@ async function billsForRepresentative(sales_rep_id) {
   }
   for (const order of ordersRes.rows) {
     const outOfDateValue = Number(order.out_of_date_value || 0);
-    const outOfDateCredit = outOfDateValue * 0.4;
-    const netDue = Number(order.total) - outOfDateCredit;
-    const balance = netDue - Number(order.collected);
-    const outstanding = balance > 0 ? balance : 0;
-    const refund_due = balance < 0 ? Math.abs(balance) : 0;
+    const outOfDateCredit = Number(order.out_of_date_credit || 0);
+    const returnCredit = Number(order.return_credit || 0);
+    const netDue = Number(order.net_collectible || 0);
+    const outstanding = Number(order.outstanding || 0);
+    const refund_due = Number(order.customer_credit || 0);
     if (!shopMap[order.shop_id]) continue;
     shopMap[order.shop_id].bills.push({
       id: order.id,
@@ -1200,6 +1127,8 @@ async function billsForRepresentative(sales_rep_id) {
       collected: Number(order.collected),
       out_of_date_value: outOfDateValue,
       out_of_date_credit: outOfDateCredit,
+      return_credit: returnCredit,
+      approved_credit: Number(order.approved_credit || 0),
       net_due: netDue,
       outstanding,
       refund_due
@@ -1225,22 +1154,10 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
   if (orderRes.rows.length === 0) throw new Error('Order not found');
   const order = orderRes.rows[0];
   const total = Number(order.total);
-  
-  const paymentsRes = await pool.query('SELECT COALESCE(SUM(CAST(amount AS numeric)),0) as collected FROM payments WHERE order_id = $1', [order_id]);
-  const collected = Number(paymentsRes.rows[0].collected);
-
-  const outOfDateRes = await pool.query(`
-    SELECT COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
-    FROM out_of_date_items odi
-    JOIN out_of_date od ON od.id = odi.out_of_date_id
-    WHERE od.order_id = $1
-  `, [order_id]);
-  const outOfDateValue = Number(outOfDateRes.rows[0]?.out_of_date_value || 0);
-  const outOfDateCredit = outOfDateValue * 0.4;
-  const netDue = total - outOfDateCredit;
-  const balance = netDue - collected;
-  const outstanding = balance > 0 ? balance : 0;
-  if (balance <= 0) throw new Error('No outstanding balance to collect for this order');
+  const financials = await getOrderFinancials(order_id, pool);
+  const collected = Number(financials?.collected || 0);
+  const outstanding = Number(financials?.outstanding || 0);
+  if (outstanding <= 0) throw new Error('No outstanding balance to collect for this order');
   
   if (Number(amount) > outstanding) throw new Error('Payment exceeds outstanding amount');
   
@@ -1267,68 +1184,11 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
     }
   });
 
-  // Send SMS notification to shop owner
-  let smsSent = false;
-  let smsError = null;
-  
-  try {
-    // Get remaining bills count for this shop
-    const remainingBillsRes = await pool.query(`
-      SELECT COUNT(DISTINCT o.id) as remaining_bills
-      FROM orders o
-      WHERE o.shop_id = $1 
-      AND o.status = 'approved'
-      AND o.total::numeric > (
-          SELECT COALESCE(SUM(CAST(p.amount AS numeric)), 0)
-          FROM payments p
-          WHERE p.order_id = o.id
-        )
-    `, [order.shop_id]);
-    
-    const remainingBillsCount = parseInt(remainingBillsRes.rows[0].remaining_bills);
-    
-    // Prepare shop object for messaging
-    const shop = {
-      name: order.shop_name,
-      address: order.address,
-      phone: order.phone
-    };
-    
-    // Prepare payment object with collected amount
-    const paymentWithCollected = {
-      ...payment,
-      collected: collected + Number(amount)
-    };
-    
-    // Send SMS notification
-    const normalizedPhone = typeof shop.phone === 'string' ? shop.phone.trim() : shop.phone;
-    if (normalizedPhone) {
-      const smsResult = await messagingService.sendPaymentNotification(
-        paymentWithCollected,
-        order,
-        { ...shop, phone: normalizedPhone },
-        remainingBillsCount,
-        ['sms']
-      );
-      
-      if (smsResult.sms && smsResult.sms.success) {
-        smsSent = true;
-      } else {
-        smsError = smsResult.sms?.error || 'SMS sending failed';
-      }
-    } else {
-      smsError = 'Shop phone number not available';
-    }
-  } catch (err) {
-    console.error('Failed to send payment SMS notification:', err);
-    smsError = err?.message || 'SMS sending failed';
-    // Don't throw error - payment was successful, SMS failure shouldn't affect payment
-  }
-
   return {
     ...payment,
-    sms_sent: smsSent,
-    sms_error: smsError
+    sms_sent: false,
+    sms_error: null,
+    sms_skipped: true,
   };
 }
 
@@ -1405,12 +1265,22 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
   `, [order_id]);
   const alreadyMap = new Map(alreadyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.qty)]));
 
+  const returnedRes = await pool.query(`
+    SELECT ri.product_id, ri.unit_credit, COALESCE(SUM(ri.quantity), 0) AS qty
+    FROM return_items ri
+    JOIN returns r ON r.id = ri.return_id
+    WHERE r.order_id = $1 AND r.status = 'confirmed'
+    GROUP BY ri.product_id, ri.unit_credit
+  `, [order_id]);
+  const returnedMap = new Map(returnedRes.rows.map(r => [`${r.product_id}:${Number(r.unit_credit)}`, Number(r.qty)]));
+
   for (const item of normalizedItems) {
     const key = `${item.product_id}:${item.unit_price}`;
     const orderItem = orderItemMap.get(key);
     if (!orderItem) throw new Error('Invalid product/price line for this order');
     const alreadyQty = alreadyMap.get(key) || 0;
-    const remaining = orderItem.quantity - alreadyQty;
+    const returnedQty = returnedMap.get(key) || 0;
+    const remaining = orderItem.quantity - alreadyQty - returnedQty;
     if (item.qty > remaining) throw new Error('Out-of-date qty exceeds remaining order qty');
   }
 
@@ -1418,6 +1288,35 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // Serialize out-of-date credits with product returns for the same invoice.
+    await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [order_id]);
+    const creditedQtyRes = await client.query(`
+      SELECT product_id, unit_price, SUM(qty) AS qty
+      FROM (
+        SELECT odi.product_id, odi.unit_price::numeric AS unit_price, odi.qty
+        FROM out_of_date_items odi
+        JOIN out_of_date od ON od.id = odi.out_of_date_id
+        WHERE od.order_id = $1
+        UNION ALL
+        SELECT ri.product_id, ri.unit_credit::numeric AS unit_price, ri.quantity AS qty
+        FROM return_items ri
+        JOIN returns r ON r.id = ri.return_id
+        WHERE r.order_id = $1 AND r.status = 'confirmed'
+      ) credited
+      GROUP BY product_id, unit_price
+    `, [order_id]);
+    const creditedQtyMap = new Map(creditedQtyRes.rows.map(row => [
+      `${row.product_id}:${Number(row.unit_price)}`,
+      Number(row.qty),
+    ]));
+    for (const item of normalizedItems) {
+      const key = `${item.product_id}:${item.unit_price}`;
+      const orderItem = orderItemMap.get(key);
+      if (item.qty > orderItem.quantity - (creditedQtyMap.get(key) || 0)) {
+        throw new Error('Out-of-date qty exceeds remaining order qty');
+      }
+    }
 
     await client.query(
       'INSERT INTO out_of_date (id, order_id, shop_id, admin_id, notes, created_at) VALUES ($1, $2, $3, $4, $5, now())',
@@ -1494,31 +1393,20 @@ async function getOrderOutOfDateHistory(order_id) {
   }));
 }
 
-async function recordReturn({ order_id, sales_rep_id, items }) {
+async function recordReturn({ order_id, sales_rep_id, items, notes, idempotency_key }) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('Return items are required');
   }
-
-  const orderRes = await pool.query(
-    'SELECT id, shop_id, sales_rep_id, status, total, notes FROM orders WHERE id = $1',
-    [order_id]
-  );
-  if (orderRes.rows.length === 0) throw new Error('Order not found');
-  const order = orderRes.rows[0];
-
-  if (order.status !== 'approved') {
-    throw new Error('Returns are allowed only for approved orders');
-  }
-  if (order.sales_rep_id !== sales_rep_id) {
-    throw new Error('Access denied - Order does not belong to you');
+  if (!idempotency_key || typeof idempotency_key !== 'string' || idempotency_key.length > 200) {
+    throw new Error('A valid return idempotency key is required');
   }
 
   const normalizedItems = items.map(item => ({
-    order_item_id: item.order_item_id,
+    order_item_id: String(item.order_item_id || ''),
     quantity: Number(item.quantity)
   }));
 
-  if (normalizedItems.some(item => !item.order_item_id || isNaN(item.quantity) || item.quantity <= 0)) {
+  if (normalizedItems.some(item => !item.order_item_id || !Number.isInteger(item.quantity) || item.quantity <= 0)) {
     throw new Error('Invalid return items');
   }
 
@@ -1526,11 +1414,49 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
   try {
     await client.query('BEGIN');
 
+    const duplicateRes = await client.query(
+      `SELECT r.id, r.order_id, r.total_credit, r.status, cn.id AS credit_note_id
+       FROM returns r
+       LEFT JOIN credit_notes cn ON cn.return_id = r.id
+       WHERE r.sales_rep_id = $1 AND r.idempotency_key = $2`,
+      [sales_rep_id, idempotency_key]
+    );
+    if (duplicateRes.rows.length) {
+      await client.query('COMMIT');
+      return { ...duplicateRes.rows[0], duplicate: true };
+    }
+
+    const orderRes = await client.query(
+      'SELECT id, shop_id, sales_rep_id, status, total FROM orders WHERE id = $1 FOR UPDATE',
+      [order_id]
+    );
+    if (orderRes.rows.length === 0) throw new Error('Order not found');
+    const order = orderRes.rows[0];
+    if (order.status !== 'approved') throw new Error('Returns are allowed only for approved orders');
+    if (String(order.sales_rep_id) !== String(sales_rep_id)) {
+      throw new Error('Access denied - Order does not belong to you');
+    }
+
     const orderItemsRes = await client.query(
-      `SELECT oi.id, oi.product_id, p.name as product_name, oi.unit_price, oi.quantity, oi.total
+      `SELECT oi.id, oi.product_id, p.name as product_name, oi.unit_price, oi.quantity,
+         COALESCE((
+           SELECT SUM(ri.quantity)
+           FROM return_items ri
+           JOIN returns r ON r.id = ri.return_id
+           WHERE ri.order_item_id = oi.id AND r.status = 'confirmed'
+         ), 0) AS returned_quantity,
+         COALESCE((
+           SELECT SUM(odi.qty)
+           FROM out_of_date_items odi
+           JOIN out_of_date od ON od.id = odi.out_of_date_id
+           WHERE od.order_id = oi.order_id
+             AND odi.product_id = oi.product_id
+             AND odi.unit_price::numeric = oi.unit_price::numeric
+         ), 0) AS out_of_date_quantity
        FROM order_items oi
        LEFT JOIN products p ON p.id = oi.product_id
-       WHERE oi.order_id = $1`,
+       WHERE oi.order_id = $1
+       FOR UPDATE OF oi`,
       [order_id]
     );
     const orderItemsMap = new Map();
@@ -1539,48 +1465,49 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
         product_id: item.product_id,
         product_name: item.product_name || null,
         unit_price: Number(item.unit_price),
-        quantity: Number(item.quantity)
+        quantity: Number(item.quantity),
+        returned_quantity: Number(item.returned_quantity || 0),
+        out_of_date_quantity: Number(item.out_of_date_quantity || 0),
       });
     });
 
+    let totalCredit = 0;
     for (const item of normalizedItems) {
       const existing = orderItemsMap.get(item.order_item_id);
       if (!existing) throw new Error('Return item not found in order');
-      if (item.quantity > existing.quantity) {
-        throw new Error('Return quantity exceeds ordered quantity');
-      }
-      const remainingQty = existing.quantity - item.quantity;
-      if (remainingQty > 0) {
-        await client.query(
-          'UPDATE order_items SET quantity = $1, total = $2 WHERE id = $3',
-          [remainingQty, existing.unit_price * remainingQty, item.order_item_id]
-        );
-      } else {
-        await client.query(
-          'DELETE FROM order_items WHERE id = $1',
-          [item.order_item_id]
-        );
-      }
+      const availableQuantity = existing.quantity - existing.returned_quantity - existing.out_of_date_quantity;
+      if (item.quantity > availableQuantity) throw new Error('Return quantity exceeds the remaining returnable quantity');
+      totalCredit += existing.unit_price * item.quantity;
     }
 
-    // Restore stock for returned items
+    const returnId = randomUUID();
+    const creditNoteId = randomUUID();
+    await client.query(
+      `INSERT INTO returns
+       (id, order_id, shop_id, sales_rep_id, status, notes, idempotency_key, total_credit, created_at)
+       VALUES ($1, $2, $3, $4, 'confirmed', $5, $6, $7, NOW())`,
+      [returnId, order_id, order.shop_id, sales_rep_id, notes || null, idempotency_key, totalCredit]
+    );
+
     for (const item of normalizedItems) {
       const existing = orderItemsMap.get(item.order_item_id);
+      const lineCredit = existing.unit_price * item.quantity;
+      await client.query(
+        `INSERT INTO return_items
+         (id, return_id, order_item_id, product_id, quantity, unit_credit, line_credit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [randomUUID(), returnId, item.order_item_id, existing.product_id, item.quantity, existing.unit_price, lineCredit]
+      );
       await client.query(
         'UPDATE products SET stock = stock + $1 WHERE id = $2',
         [item.quantity, existing.product_id]
       );
     }
 
-    const updatedItemsRes = await client.query(
-      'SELECT product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1',
-      [order_id]
-    );
-    const newTotal = updatedItemsRes.rows.reduce((sum, row) => sum + Number(row.total), 0);
-
     await client.query(
-      'UPDATE orders SET total = $1 WHERE id = $2',
-      [newTotal, order_id]
+      `INSERT INTO credit_notes (id, order_id, return_id, amount, status, created_at)
+       VALUES ($1, $2, $3, $4, 'approved', NOW())`,
+      [creditNoteId, order_id, returnId, totalCredit]
     );
 
     await client.query('COMMIT');
@@ -1599,13 +1526,78 @@ async function recordReturn({ order_id, sales_rep_id, items }) {
       sales_rep_id,
       action: 'return',
       details: {
+        return_id: returnId,
+        credit_note_id: creditNoteId,
         returned_items: returnedItemsForLog,
-        previous_total: Number(order.total),
-        new_total: newTotal
+        original_invoice_total: Number(order.total),
+        return_credit: totalCredit
       }
     });
 
-    return { id: order_id, total: newTotal, status: order.status };
+    const financials = await getOrderFinancials(order_id, pool);
+    return {
+      id: returnId,
+      order_id,
+      credit_note_id: creditNoteId,
+      return_credit: totalCredit,
+      invoice_total: Number(order.total),
+      net_due: Number(financials.net_collectible),
+      outstanding: Number(financials.outstanding),
+      customer_credit: Number(financials.customer_credit),
+      status: 'confirmed',
+      duplicate: false,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function resolveCustomerCredit({ order_id, admin_id, resolution_type, amount, notes }) {
+  const numericAmount = Number(amount);
+  if (!['refund', 'account_credit'].includes(resolution_type)) {
+    throw new Error('Resolution type must be refund or account_credit');
+  }
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new Error('Resolution amount must be greater than zero');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const orderRes = await client.query(
+      'SELECT id, shop_id, status FROM orders WHERE id = $1 FOR UPDATE',
+      [order_id]
+    );
+    if (!orderRes.rows.length) throw new Error('Order not found');
+    if (orderRes.rows[0].status !== 'approved') {
+      throw new Error('Customer credit can be resolved only for approved invoices');
+    }
+
+    const financials = await getOrderFinancials(order_id, client);
+    const availableCustomerCredit = Number(financials?.customer_credit || 0);
+    if (numericAmount > availableCustomerCredit) {
+      throw new Error(`Amount exceeds unresolved customer credit (${availableCustomerCredit.toFixed(2)} LKR)`);
+    }
+
+    const id = randomUUID();
+    await client.query(
+      `INSERT INTO customer_credit_resolutions
+       (id, order_id, shop_id, admin_id, resolution_type, amount, notes, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [id, order_id, orderRes.rows[0].shop_id, admin_id, resolution_type, numericAmount, notes || null]
+    );
+    await client.query('COMMIT');
+
+    return {
+      id,
+      order_id,
+      resolution_type,
+      amount: numericAmount,
+      remaining_customer_credit: Math.max(availableCustomerCredit - numericAmount, 0),
+    };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -1768,12 +1760,17 @@ async function getSalesRepresentativesWithStats() {
         [rep.id]
       ),
       pool.query(
-        `SELECT o.id, o.total, o.created_at,
-           COALESCE(SUM(CAST(p.amount AS numeric)), 0) as collected_amount
+        `WITH ${ORDER_FINANCIALS_CTES}
+         SELECT o.id, o.total, o.created_at,
+           of.collected AS collected_amount,
+           of.approved_credit,
+           of.net_collectible,
+           of.outstanding,
+           of.customer_credit
          FROM orders o
-         LEFT JOIN payments p ON o.id = p.order_id
+         JOIN order_financials of ON of.order_id = o.id
          WHERE o.sales_rep_id = $1 AND o.status = 'approved'
-         GROUP BY o.id, o.total, o.created_at`,
+         ORDER BY o.created_at DESC`,
         [rep.id]
       ),
       pool.query(
@@ -1803,8 +1800,17 @@ async function getSalesRepresentativesWithStats() {
     const totalRevenue = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
     const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
     const collectedAmount = orders.reduce((sum, o) => sum + Number(o.collected_amount || 0), 0);
-    const outstandingAmount = totalRevenue - collectedAmount;
-    const collectionRate = totalRevenue > 0 ? (collectedAmount / totalRevenue) * 100 : 0;
+    const approvedCredits = orders.reduce((sum, o) => sum + Number(o.approved_credit || 0), 0);
+    const netCollectibleRevenue = orders.reduce((sum, o) => sum + Number(o.net_collectible || 0), 0);
+    const outstandingAmount = orders.reduce((sum, o) => sum + Number(o.outstanding || 0), 0);
+    const customerCredit = orders.reduce((sum, o) => sum + Number(o.customer_credit || 0), 0);
+    const collectedAgainstInvoices = orders.reduce(
+      (sum, o) => sum + Math.min(Number(o.collected_amount || 0), Number(o.net_collectible || 0)),
+      0
+    );
+    const collectionRate = netCollectibleRevenue > 0
+      ? (collectedAgainstInvoices / netCollectibleRevenue) * 100
+      : 0;
 
     let performanceRating = 'Poor';
     if (collectionRate >= 75) performanceRating = 'Excellent';
@@ -1817,8 +1823,11 @@ async function getSalesRepresentativesWithStats() {
       order_count: orders.length,
       avg_order_value: avgOrderValue,
       total_revenue: totalRevenue,
+      approved_credits: approvedCredits,
+      net_collectible_revenue: netCollectibleRevenue,
       outstanding_amount: outstandingAmount,
       collected_amount: collectedAmount,
+      customer_credit: customerCredit,
       collection_rate: collectionRate,
       performance_rating: performanceRating,
       pending_order_count: Number(pendingRes.rows[0]?.count || 0),
@@ -1893,12 +1902,43 @@ async function getOrderDetails(order_id) {
     GROUP BY odi.product_id, odi.unit_price
   `, [order_id]);
   const outOfDateQtyMap = new Map(outOfDateQtyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.out_of_date_qty)]));
-  
-  // Get payment information
-  const paymentsRes = await pool.query(`
-    SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as collected
-    FROM payments
-    WHERE order_id = $1
+
+  const returnedQtyRes = await pool.query(`
+    SELECT ri.order_item_id, COALESCE(SUM(ri.quantity), 0) AS returned_qty
+    FROM return_items ri
+    JOIN returns r ON r.id = ri.return_id
+    WHERE r.order_id = $1 AND r.status = 'confirmed'
+    GROUP BY ri.order_item_id
+  `, [order_id]);
+  const returnedQtyMap = new Map(returnedQtyRes.rows.map(r => [r.order_item_id, Number(r.returned_qty)]));
+
+  const returnsRes = await pool.query(`
+    SELECT r.id, r.status, r.notes, r.total_credit, r.created_at,
+      cn.id AS credit_note_id, cn.amount AS credit_note_amount,
+      COALESCE(json_agg(json_build_object(
+        'order_item_id', ri.order_item_id,
+        'product_id', ri.product_id,
+        'product_name', p.name,
+        'quantity', ri.quantity,
+        'unit_credit', ri.unit_credit,
+        'line_credit', ri.line_credit
+      ) ORDER BY p.name) FILTER (WHERE ri.id IS NOT NULL), '[]'::json) AS items
+    FROM returns r
+    LEFT JOIN return_items ri ON ri.return_id = r.id
+    LEFT JOIN products p ON p.id = ri.product_id
+    LEFT JOIN credit_notes cn ON cn.return_id = r.id
+    WHERE r.order_id = $1
+    GROUP BY r.id, cn.id, cn.amount
+    ORDER BY r.created_at DESC
+  `, [order_id]);
+
+  const creditResolutionsRes = await pool.query(`
+    SELECT ccr.id, ccr.resolution_type, ccr.amount, ccr.notes, ccr.created_at,
+      u.first_name AS admin_first_name, u.last_name AS admin_last_name
+    FROM customer_credit_resolutions ccr
+    LEFT JOIN users u ON u.id = ccr.admin_id
+    WHERE ccr.order_id = $1
+    ORDER BY ccr.created_at DESC
   `, [order_id]);
   
   const outOfDateValueRes = await pool.query(`
@@ -1908,13 +1948,14 @@ async function getOrderDetails(order_id) {
     WHERE od.order_id = $1
   `, [order_id]);
 
-  const collected = Number(paymentsRes.rows[0].collected);
+  const financials = await getOrderFinancials(order_id, pool);
+  const collected = Number(financials?.collected || 0);
   const outOfDateValue = Number(outOfDateValueRes.rows[0]?.out_of_date_value || 0);
-  const outOfDateCredit = outOfDateValue * 0.4;
-  const netDue = Number(order.total) - outOfDateCredit;
-  const balance = netDue - collected;
-  const outstanding = balance > 0 ? balance : 0;
-  const refund_due = balance < 0 ? Math.abs(balance) : 0;
+  const outOfDateCredit = Number(financials?.out_of_date_credit || 0);
+  const returnCredit = Number(financials?.return_credit || 0);
+  const netDue = Number(financials?.net_collectible || 0);
+  const outstanding = Number(financials?.outstanding || 0);
+  const refund_due = Number(financials?.customer_credit || 0);
   
   return {
     id: order.id,
@@ -1927,9 +1968,12 @@ async function getOrderDetails(order_id) {
     collected: collected,
     out_of_date_value: outOfDateValue,
     out_of_date_credit: outOfDateCredit,
+    return_credit: returnCredit,
+    approved_credit: Number(financials?.approved_credit || 0),
     net_due: netDue,
     outstanding,
     refund_due,
+    resolved_customer_credit: Number(financials?.resolved_customer_credit || 0),
     shop: {
       name: order.shop_name,
       address: order.shop_address,
@@ -1940,16 +1984,35 @@ async function getOrderDetails(order_id) {
       last_name: order.sales_rep_last_name,
       email: order.sales_rep_email
     },
-    items: itemsRes.rows.map(item => ({
+    returns: returnsRes.rows.map(returnDocument => ({
+      ...returnDocument,
+      total_credit: Number(returnDocument.total_credit || 0),
+      credit_note_amount: Number(returnDocument.credit_note_amount || 0),
+      items: (returnDocument.items || []).map(item => ({
+        ...item,
+        quantity: Number(item.quantity || 0),
+        unit_credit: Number(item.unit_credit || 0),
+        line_credit: Number(item.line_credit || 0),
+      })),
+    })),
+    customer_credit_resolutions: creditResolutionsRes.rows.map(resolution => ({
+      ...resolution,
+      amount: Number(resolution.amount || 0),
+    })),
+    items: itemsRes.rows.map(item => {
+      const outOfDateQty = outOfDateQtyMap.get(`${item.product_id}:${Number(item.unit_price)}`) || 0;
+      const returnedQty = returnedQtyMap.get(item.order_item_id) || 0;
+      return ({
       order_item_id: item.order_item_id,
       product_id: item.product_id,
       name: item.product_name,
       quantity: Number(item.quantity),
       unit_price: Number(item.unit_price),
-      out_of_date_qty: outOfDateQtyMap.get(`${item.product_id}:${Number(item.unit_price)}`) || 0,
-      remaining_qty: Math.max(0, Number(item.quantity) - (outOfDateQtyMap.get(`${item.product_id}:${Number(item.unit_price)}`) || 0)),
+      out_of_date_qty: outOfDateQty,
+      returned_qty: returnedQty,
+      remaining_qty: Math.max(0, Number(item.quantity) - outOfDateQty - returnedQty),
       total: Number(item.item_total)
-    }))
+    });})
   };
 }
 
@@ -2079,27 +2142,16 @@ async function getPaymentDetails(payment_id) {
 
   // Get remaining bills count for this shop
   const remainingBillsRes = await pool.query(`
-    SELECT COUNT(DISTINCT o.id) as remaining_bills
-    FROM orders o
-    WHERE o.shop_id = $1 
-    AND o.status = 'approved'
-    AND o.total > (
-      SELECT COALESCE(SUM(CAST(p.amount AS numeric)), 0)
-      FROM payments p
-      WHERE p.order_id = o.id
-    )
+    WITH ${ORDER_FINANCIALS_CTES}
+    SELECT COUNT(*) as remaining_bills
+    FROM order_financials
+    WHERE shop_id = $1 AND status = 'approved' AND outstanding > 0
   `, [paymentData.shop_id]);
 
   const remainingBillsCount = parseInt(remainingBillsRes.rows[0].remaining_bills);
 
-  // Get total collected for this order
-  const collectedRes = await pool.query(`
-    SELECT COALESCE(SUM(CAST(amount AS numeric)), 0) as collected
-    FROM payments 
-    WHERE order_id = $1
-  `, [paymentData.order_id]);
-
-  const collected = Number(collectedRes.rows[0].collected);
+  const financials = await getOrderFinancials(paymentData.order_id, pool);
+  const collected = Number(financials?.collected || 0);
 
   return {
     payment: {
@@ -2107,11 +2159,14 @@ async function getPaymentDetails(payment_id) {
       amount: paymentData.amount,
       notes: paymentData.notes,
       created_at: paymentData.created_at,
-      collected: collected
+      collected,
+      outstanding: Number(financials?.outstanding || 0),
     },
     order: {
       id: paymentData.order_id,
       total: paymentData.order_total,
+      approved_credit: Number(financials?.approved_credit || 0),
+      net_collectible: Number(financials?.net_collectible || paymentData.order_total),
       created_at: paymentData.order_created_at,
       status: paymentData.order_status
     },
@@ -2133,6 +2188,7 @@ async function getPaymentDetails(payment_id) {
 // Function to get collections made by a specific sales representative
 async function getRepresentativeCollections(sales_rep_id) {
   const result = await pool.query(`
+    WITH ${ORDER_FINANCIALS_CTES}
     SELECT 
       p.id as payment_id,
       p.amount,
@@ -2143,6 +2199,8 @@ async function getRepresentativeCollections(sales_rep_id) {
       o.notes as order_notes,
       o.created_at as order_date,
       o.status as order_status,
+      of.approved_credit,
+      of.net_collectible,
       s.id as shop_id,
       s.name as shop_name,
       s.address as shop_address,
@@ -2160,6 +2218,7 @@ async function getRepresentativeCollections(sales_rep_id) {
       ) as previous_collected
     FROM payments p
     JOIN orders o ON p.order_id = o.id
+    JOIN order_financials of ON of.order_id = o.id
     JOIN shops s ON o.shop_id = s.id
     JOIN users u ON p.sales_rep_id = u.id
     WHERE p.sales_rep_id = $1::text
@@ -2169,8 +2228,10 @@ async function getRepresentativeCollections(sales_rep_id) {
   // The window value replaces one extra database query per payment row.
   const collections = result.rows.map((row) => {
     const previousCollected = Number(row.previous_collected || 0);
-    const outstandingBeforePayment = Number(row.order_total) - previousCollected;
-    const outstandingAfterPayment = outstandingBeforePayment - Number(row.amount);
+    const netCollectible = Number(row.net_collectible || 0);
+    const outstandingBeforePayment = Math.max(netCollectible - previousCollected, 0);
+    const outstandingAfterPayment = Math.max(outstandingBeforePayment - Number(row.amount), 0);
+    const customerCreditAfterPayment = Math.max(previousCollected + Number(row.amount) - netCollectible, 0);
     
     return {
       payment_id: row.payment_id,
@@ -2179,6 +2240,8 @@ async function getRepresentativeCollections(sales_rep_id) {
       payment_date: row.payment_date,
       order_id: row.order_id,
       order_total: Number(row.order_total),
+      approved_credit: Number(row.approved_credit || 0),
+      net_collectible: netCollectible,
       order_notes: row.order_notes,
       order_date: row.order_date,
       order_status: row.order_status,
@@ -2195,7 +2258,10 @@ async function getRepresentativeCollections(sales_rep_id) {
       },
       outstanding_before_payment: outstandingBeforePayment,
       outstanding_after_payment: outstandingAfterPayment,
-      collection_percentage: ((Number(row.amount) / Number(row.order_total)) * 100).toFixed(2)
+      customer_credit_after_payment: customerCreditAfterPayment,
+      collection_percentage: (netCollectible > 0
+        ? (Math.min(Number(row.amount), outstandingBeforePayment) / netCollectible) * 100
+        : 0).toFixed(2)
     };
   });
 
@@ -2280,34 +2346,7 @@ async function getShopDetails(shop_id) {
   const shop = shopRes.rows[0];
   
   // Get outstanding amounts and active bills
-  const outstandingRes = await pool.query(`
-    SELECT 
-      COALESCE(SUM(CASE WHEN o.status = 'approved' THEN
-        (o.total::numeric)
-        - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o.id), 0)
-        - (COALESCE((
-            SELECT SUM(odi.line_total::numeric)
-            FROM out_of_date_items odi
-            JOIN out_of_date od ON od.id = odi.out_of_date_id
-            WHERE od.order_id = o.id
-          ), 0) * 0.4)
-      ELSE 0 END), 0) as current_outstanding,
-      (SELECT COUNT(*) FROM orders o2 
-       WHERE o2.shop_id = $1 
-       AND o2.status = 'approved'
-       AND (
-          (o2.total::numeric)
-          - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o2.id), 0)
-          - (COALESCE((
-              SELECT SUM(odi.line_total::numeric)
-              FROM out_of_date_items odi
-              JOIN out_of_date od ON od.id = odi.out_of_date_id
-              WHERE od.order_id = o2.id
-            ), 0) * 0.4)
-        ) > 0) as active_bills
-    FROM orders o
-    WHERE o.shop_id = $1
-  `, [shop_id]);
+  const creditSummary = await getShopCreditSummary(shop_id, pool);
   
   // Get pending orders
   const pendingOrdersRes = await pool.query(`
@@ -2322,15 +2361,17 @@ async function getShopDetails(shop_id) {
   
   // Get active bills with payment details
   const activeBillsRes = await pool.query(`
+    WITH ${ORDER_FINANCIALS_CTES}
     SELECT o.id, o.created_at, o.total, o.notes,
-      COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o.id), 0) as collected,
+      of.collected, of.approved_credit, of.net_collectible, of.outstanding, of.customer_credit,
       (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count,
       u.first_name as sales_rep_first_name, u.last_name as sales_rep_last_name
     FROM orders o
     LEFT JOIN users u ON o.sales_rep_id = u.id
+    JOIN order_financials of ON of.order_id = o.id
     WHERE o.shop_id = $1 
     AND o.status = 'approved'
-    AND (o.total::numeric - COALESCE((SELECT SUM(p.amount::numeric) FROM payments p WHERE p.order_id = o.id), 0)) > 0
+    AND of.outstanding > 0
     ORDER BY o.created_at DESC
   `, [shop_id]);
   
@@ -2348,16 +2389,19 @@ async function getShopDetails(shop_id) {
   `, [shop_id]);
   
   // Calculate available credit - ensure all values are numbers
-  const currentOutstanding = Number(outstandingRes.rows[0].current_outstanding);
+  const currentOutstanding = Number(creditSummary?.collectible_outstanding || 0);
   const maxBillAmount = Number(shop.max_bill_amount);
-  const availableCredit = maxBillAmount - currentOutstanding;
+  const availableCredit = Number(creditSummary?.available_credit || 0);
   
   return {
     ...shop,
     max_bill_amount: maxBillAmount, // Ensure this is a number
     max_active_bills: Number(shop.max_active_bills), // Ensure this is a number
     current_outstanding: currentOutstanding,
-    active_bills: Number(outstandingRes.rows[0].active_bills),
+    collectible_outstanding: currentOutstanding,
+    pending_order_value: Number(creditSummary?.pending_order_value || 0),
+    credit_used: Number(creditSummary?.credit_used || 0),
+    active_bills: Number(creditSummary?.active_bills || 0),
     available_credit: availableCredit,
     pending_orders: pendingOrdersRes.rows.map(order => ({
       ...order,
@@ -2368,7 +2412,10 @@ async function getShopDetails(shop_id) {
       ...bill,
       total: Number(bill.total),
       collected: Number(bill.collected),
-      outstanding: Number(bill.total) - Number(bill.collected),
+      approved_credit: Number(bill.approved_credit),
+      net_collectible: Number(bill.net_collectible),
+      outstanding: Number(bill.outstanding),
+      customer_credit: Number(bill.customer_credit),
       item_count: Number(bill.item_count)
     })),
     recent_payments: recentPaymentsRes.rows.map(payment => ({
@@ -2572,6 +2619,7 @@ module.exports.listOrders = listOrders;
 module.exports.billsForRepresentative = billsForRepresentative; 
 module.exports.recordPayment = recordPayment; 
 module.exports.recordReturn = recordReturn;
+module.exports.resolveCustomerCredit = resolveCustomerCredit;
 module.exports.getSalesRepresentativesWithStats = getSalesRepresentativesWithStats; 
 module.exports.listAllOrders = listAllOrders;
 module.exports.approveOrder = approveOrder; 

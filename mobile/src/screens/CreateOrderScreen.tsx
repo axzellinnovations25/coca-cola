@@ -44,6 +44,10 @@ interface Shop {
   max_bill_amount: number;
   max_active_bills: number;
   current_outstanding: number;
+  collectible_outstanding: number;
+  pending_order_value: number;
+  credit_used: number;
+  available_credit: number;
   active_bills: number;
 }
 
@@ -61,10 +65,14 @@ interface Product {
 
 const SHOPS_PATH = '/api/marudham/shops/assigned';
 const PRODUCTS_PATH = '/api/marudham/order-products';
+const PENDING_ORDERS_PATH = '/api/marudham/orders/pending';
 const REFERENCE_CACHE_MS = 2 * 60 * 1000;
 
 type ShopsResponse = { shops?: Shop[] };
 type ProductsResponse = { products?: Product[] };
+type PendingOrdersResponse = {
+  orders?: Array<{ shop_id: string; total: number | string }>;
+};
 
 interface OrderItem {
   product_id: string;
@@ -77,10 +85,13 @@ interface OrderItem {
 
 interface Bill {
   id: string;
-  created_at: string;
+  created_at?: string;
   total: number;
   collected: number;
   outstanding: number;
+  source?: 'current' | 'legacy';
+  invoice_number?: string;
+  return_mode?: 'items' | 'amount';
 }
 
 interface ShopBills {
@@ -100,7 +111,7 @@ interface ReturnLineItem {
 
 type FlowStep = 'shops' | 'shop' | 'catalog' | 'cart' | 'free' | 'summary' | 'bills' | 'payment' | 'return';
 type BillMode = 'collection' | 'return';
-type QuantityEntryMode = 'case' | 'each';
+type QuantityEntryMode = 'case' | 'each' | 'free';
 
 interface BluetoothPrinterDevice {
   deviceName: string;
@@ -110,6 +121,8 @@ interface BluetoothPrinterDevice {
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
 const DEFAULT_CASE_SIZE = 12;
+const createIdempotencyKey = () =>
+  `return-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 // Server is the source of truth (products.units_per_case); the name heuristic
 // below only covers servers that don't send the field yet.
 const getCaseSize = (product: { name?: string; units_per_case?: number } | null | undefined) => {
@@ -138,9 +151,11 @@ const getCaseSize = (product: { name?: string; units_per_case?: number } | null 
 };
 
 const getProductType = (product: Product) => {
+  const value = `${product.name} ${product.description || ''} ${product.brand || ''}`.toLowerCase();
+  // These products belong to Core even when older DB rows are categorized as Energy Drinks.
+  if (/portello|porteelo/.test(value)) return 'Core Sparkling';
   const category = product.category?.trim();
   if (category && !/^others?$/i.test(category)) return category;
-  const value = `${product.name} ${product.description || ''}`.toLowerCase();
   if (/monster|energy/.test(value)) return 'Energy Drinks';
   if (/water|aqua/.test(value)) return 'Water';
   if (/juice|nectar/.test(value)) return 'Juice';
@@ -163,6 +178,7 @@ const getProductBrand = (product: Product) => {
     [/coca|coke/, 'Coca-Cola'],
     [/fanta/, 'Fanta'],
     [/sprite/, 'Sprite'],
+    [/portello|porteelo/, 'Portello'],
     [/monster/, 'Monster'],
     [/water|aqua/, 'Water'],
   ];
@@ -339,6 +355,15 @@ const formatBillDate = (value: string | number | Date | null | undefined) => {
   return date ? date.toLocaleDateString() : 'Date unavailable';
 };
 
+const isLegacyBill = (bill: Bill | null | undefined) =>
+  bill?.source === 'legacy';
+
+const usesAmountReturn = (bill: Bill | null | undefined) =>
+  bill?.return_mode === 'amount' || isLegacyBill(bill);
+
+const getBillNumber = (bill: Bill) =>
+  bill.invoice_number?.trim() || bill.id.slice(0, 8).toUpperCase();
+
 export default function CreateOrderScreen() {
   const bottomTabBarHeight = 0;
   const colors = useThemeColors();
@@ -383,6 +408,9 @@ export default function CreateOrderScreen() {
   const [billActionLoading, setBillActionLoading] = useState(false);
   const [returnItems, setReturnItems] = useState<ReturnLineItem[]>([]);
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
+  const [legacyReturnAmount, setLegacyReturnAmount] = useState('');
+  const [legacyReturnNotes, setLegacyReturnNotes] = useState('');
+  const [returnIdempotencyKey, setReturnIdempotencyKey] = useState('');
 
   const [showConfirm, setShowConfirm] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
@@ -429,14 +457,34 @@ export default function CreateOrderScreen() {
         setLoading(true);
       }
       setError('');
-      const [shopData, productData] = await Promise.all([
+      const [shopData, productData, pendingOrderData] = await Promise.all([
         apiFetchCached<ShopsResponse>(SHOPS_PATH, { maxAgeMs: REFERENCE_CACHE_MS, force }),
         apiFetchCached<ProductsResponse>(PRODUCTS_PATH, { maxAgeMs: REFERENCE_CACHE_MS, force }),
+        apiFetchCached<PendingOrdersResponse>(PENDING_ORDERS_PATH, { maxAgeMs: REFERENCE_CACHE_MS, force }),
       ]);
-      setShops(shopData.shops || []);
+      const pendingByShop = new Map<string, number>();
+      for (const order of pendingOrderData.orders || []) {
+        pendingByShop.set(
+          String(order.shop_id),
+          (pendingByShop.get(String(order.shop_id)) || 0) + Number(order.total || 0),
+        );
+      }
+      const normalizedShops = (shopData.shops || []).map((shop) => {
+        const collectibleOutstanding = Number(shop.collectible_outstanding ?? shop.current_outstanding) || 0;
+        const pendingOrderValue = pendingByShop.get(String(shop.id)) ?? Number(shop.pending_order_value || 0);
+        const creditUsed = collectibleOutstanding + pendingOrderValue;
+        return {
+          ...shop,
+          collectible_outstanding: collectibleOutstanding,
+          pending_order_value: pendingOrderValue,
+          credit_used: creditUsed,
+          available_credit: Math.max(Number(shop.max_bill_amount) - creditUsed, 0),
+        };
+      });
+      setShops(normalizedShops);
       setProducts(productData.products || []);
       setSelectedShop((current) =>
-        current ? (shopData.shops || []).find((shop) => shop.id === current.id) || current : null,
+        current ? normalizedShops.find((shop) => shop.id === current.id) || current : null,
       );
       hasLoadedData.current = true;
     } catch (err: any) {
@@ -687,7 +735,10 @@ export default function CreateOrderScreen() {
   const hasEmptyItems = orderItems.some((item) => item.quantity <= 0 && item.free_quantity <= 0);
 
   const availableCredit = selectedShop
-    ? Math.max(0, Number(selectedShop.max_bill_amount) - Number(selectedShop.current_outstanding))
+    ? Math.max(0, Number(
+        selectedShop.available_credit
+        ?? (Number(selectedShop.max_bill_amount) - Number(selectedShop.current_outstanding) - Number(selectedShop.pending_order_value || 0))
+      ))
     : 0;
   const exceedsCredit = !!selectedShop && orderTotal > availableCredit;
   const noBillSlots =
@@ -749,6 +800,41 @@ export default function CreateOrderScreen() {
 
     const existing = orderItems.find((item) => item.product_id === product.id);
     const currentPaid = existing?.quantity || 0;
+    if (mode === 'free') {
+      const availableForFree = Math.max(0, (Number(product.available_stock) || 0) - currentPaid);
+      if (entered > availableForFree) {
+        Alert.alert(
+          'Limited Stock',
+          `Only ${availableForFree} free units are available after paid items.`,
+        );
+        return;
+      }
+      setOrderItems((items) => {
+        const current = items.find((item) => item.product_id === product.id);
+        if (!current) {
+          if (entered === 0) return items;
+          return [
+            ...items,
+            {
+              product_id: product.id,
+              name: product.name,
+              unit_price: Number(product.unit_price) || 0,
+              quantity: 0,
+              free_quantity: entered,
+              units_per_case: product.units_per_case,
+            },
+          ];
+        }
+        if (entered === 0 && current.quantity === 0) {
+          return items.filter((item) => item.product_id !== product.id);
+        }
+        return items.map((item) =>
+          item.product_id === product.id ? { ...item, free_quantity: entered } : item,
+        );
+      });
+      closeQuantityEntry();
+      return;
+    }
     const currentCases = Math.floor(currentPaid / caseSize);
     const currentEach = currentPaid % caseSize;
     const nextPaid =
@@ -805,7 +891,10 @@ export default function CreateOrderScreen() {
         force: true,
       });
       const group = (response.bills || []).find((item) => item.shop_id === selectedShop.id);
-      setShopBills((group?.bills || []).filter((bill) => mode === 'return' || Number(bill.outstanding) > 0));
+      setShopBills((group?.bills || []).filter((bill) => {
+        if (mode === 'collection') return Number(bill.outstanding) > 0;
+        return usesAmountReturn(bill) ? Number(bill.outstanding) > 0 : true;
+      }));
     } catch (err: any) {
       setError(err.message || 'Failed to load bills.');
     } finally {
@@ -822,6 +911,15 @@ export default function CreateOrderScreen() {
       navigateFlow('payment');
       return;
     }
+    if (usesAmountReturn(bill)) {
+      setLegacyReturnAmount('');
+      setLegacyReturnNotes('');
+      setReturnItems([]);
+      setReturnQuantities({});
+      setReturnIdempotencyKey(createIdempotencyKey());
+      navigateFlow('return');
+      return;
+    }
     setBillsLoading(true);
     try {
       const response = await apiFetch(`/api/marudham/orders/${bill.id}/details`);
@@ -834,6 +932,7 @@ export default function CreateOrderScreen() {
       })).filter((item: ReturnLineItem) => item.order_item_id && item.quantity > 0);
       setReturnItems(items);
       setReturnQuantities({});
+      setReturnIdempotencyKey(createIdempotencyKey());
       navigateFlow('return');
     } catch (err: any) {
       setError(err.message || 'Failed to load bill items.');
@@ -853,7 +952,11 @@ export default function CreateOrderScreen() {
     try {
       await apiFetch(`/api/marudham/bills/${selectedBill.id}/payment`, {
         method: 'POST',
-        body: JSON.stringify({ amount, notes: collectionNotes }),
+        body: JSON.stringify({
+          amount,
+          notes: collectionNotes,
+          source: selectedBill.source || 'current',
+        }),
       });
       invalidateApiCache([
         '/api/marudham/bills/representative',
@@ -873,6 +976,44 @@ export default function CreateOrderScreen() {
 
   const submitShopReturn = async () => {
     if (!selectedBill) return;
+    if (usesAmountReturn(selectedBill)) {
+      const amount = Number(legacyReturnAmount);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > Number(selectedBill.outstanding)) {
+        Alert.alert(
+          'Invalid Amount',
+          `Enter an amount between 0 and ${formatCurrency(selectedBill.outstanding)} LKR.`,
+        );
+        return;
+      }
+      setBillActionLoading(true);
+      try {
+        await apiFetch(`/api/marudham/bills/${selectedBill.id}/return`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amount,
+            notes: legacyReturnNotes,
+            source: 'legacy',
+            return_mode: 'amount',
+          }),
+        });
+        invalidateApiCache([
+          '/api/marudham/bills/representative',
+          SHOPS_PATH,
+          '/api/marudham/orders',
+        ]);
+        await fetchData(true, true);
+        Alert.alert(
+          'Return Credit Recorded',
+          `${formatCurrency(amount)} LKR was deducted from the past invoice.`,
+        );
+        resetFlow('shop', ['shops']);
+      } catch (err: any) {
+        setError(err.message || 'Failed to record the return credit.');
+      } finally {
+        setBillActionLoading(false);
+      }
+      return;
+    }
     const items = returnItems
       .map((item) => ({ order_item_id: item.order_item_id, quantity: Number(returnQuantities[item.order_item_id] || 0) }))
       .filter((item) => item.quantity > 0);
@@ -890,9 +1031,12 @@ export default function CreateOrderScreen() {
     }
     setBillActionLoading(true);
     try {
-      await apiFetch(`/api/marudham/bills/${selectedBill.id}/return`, {
+      const response = await apiFetch(`/api/marudham/bills/${selectedBill.id}/return`, {
         method: 'POST',
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({
+          items,
+          idempotency_key: returnIdempotencyKey || createIdempotencyKey(),
+        }),
       });
       invalidateApiCache([
         '/api/marudham/bills/representative',
@@ -901,7 +1045,13 @@ export default function CreateOrderScreen() {
         '/api/marudham/orders',
       ]);
       await fetchData(true, true);
-      Alert.alert('Return Recorded', 'The selected products were returned successfully.');
+      const customerCredit = Number(response.return?.customer_credit || 0);
+      Alert.alert(
+        'Return Recorded',
+        customerCredit > 0
+          ? `The return was recorded. ${formatCurrency(customerCredit)} LKR is now customer credit / refund due.`
+          : 'The selected products were returned and a credit note was created successfully.',
+      );
       resetFlow('shop', ['shops']);
     } catch (err: any) {
       setError(err.message || 'Failed to record return.');
@@ -972,25 +1122,34 @@ export default function CreateOrderScreen() {
       };
       setReceipt(createdOrder);
       setShowReceipt(true);
+      const createdOrderTotal = Number(response.order?.total ?? orderTotal);
+      setShops((currentShops) => currentShops.map((shop) => {
+        if (shop.id !== selectedShop.id) return shop;
+        const collectibleOutstanding = Number(shop.collectible_outstanding ?? shop.current_outstanding) || 0;
+        const pendingOrderValue = (Number(shop.pending_order_value) || 0) + createdOrderTotal;
+        const creditUsed = collectibleOutstanding + pendingOrderValue;
+        return {
+          ...shop,
+          collectible_outstanding: collectibleOutstanding,
+          pending_order_value: pendingOrderValue,
+          credit_used: creditUsed,
+          available_credit: Math.max(Number(shop.max_bill_amount) - creditUsed, 0),
+          active_bills: Number(shop.active_bills || 0) + 1,
+        };
+      }));
       setOrderItems([]);
       setSelectedShop(null);
       setShopSearch('');
       resetFlow('shops');
       invalidateApiCache([
         '/api/marudham/orders',
-        '/api/marudham/orders/pending',
+        PENDING_ORDERS_PATH,
         SHOPS_PATH,
         PRODUCTS_PATH,
         '/api/marudham/bills/representative',
       ]);
       fetchData(true, true);
-      if (selectedShop.phone) {
-        sendSMS(response.order.id).catch(() => {
-          setMessageStatus({ type: 'error', message: 'Order created but SMS failed.' });
-        });
-      } else {
-        setMessageStatus({ type: 'error', message: 'SMS not sent (no phone on record).' });
-      }
+      setMessageStatus({ type: 'success', message: 'Order created successfully.' });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1435,7 +1594,15 @@ export default function CreateOrderScreen() {
               <TouchableOpacity style={styles.stepperButton} onPress={() => updateFreeQuantity(product.id, -1)}>
                 <Text style={styles.stepperButtonText}>−</Text>
               </TouchableOpacity>
-              <Text style={styles.stepperValue}>{freeQuantity}</Text>
+              <TouchableOpacity
+                style={styles.freeQuantityEntry}
+                onPress={() => openQuantityEntry(product, 'free', freeQuantity)}
+                accessibilityRole="button"
+                accessibilityLabel={`Type free units for ${product.name}`}
+              >
+                <Text style={styles.stepperValue}>{freeQuantity}</Text>
+                <Text style={styles.directQuantityHint}>Tap to type</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.stepperButtonActive} onPress={() => addProductUnits(product, 1, true)}>
                 <Text style={styles.stepperButtonTextActive}>+</Text>
               </TouchableOpacity>
@@ -1575,8 +1742,10 @@ export default function CreateOrderScreen() {
 
     if (flowStep === 'shop' && selectedShop) {
       const creditLimit = Number(selectedShop.max_bill_amount) || 0;
-      const outstanding = Number(selectedShop.current_outstanding) || 0;
-      const creditUsage = creditLimit > 0 ? Math.min(1, outstanding / creditLimit) : 0;
+      const outstanding = Number(selectedShop.collectible_outstanding ?? selectedShop.current_outstanding) || 0;
+      const pendingOrderValue = Number(selectedShop.pending_order_value) || 0;
+      const creditUsed = Number(selectedShop.credit_used) || 0;
+      const creditUsage = creditLimit > 0 ? Math.min(1, creditUsed / creditLimit) : 0;
       const maxBills = Number(selectedShop.max_active_bills) || 0;
       const activeBills = Number(selectedShop.active_bills) || 0;
       return (
@@ -1597,8 +1766,10 @@ export default function CreateOrderScreen() {
                 <Text style={styles.compactShopMeta} numberOfLines={1}>{selectedShop.address}</Text>
                 {!!selectedShop.phone && <Text style={styles.compactShopMeta}>{selectedShop.phone}</Text>}
               </View>
-              <View style={[styles.accountBadge, outstanding > 0 ? styles.accountBadgeDue : styles.accountBadgeClear]}>
-                <Text style={styles.accountBadgeText}>{outstanding > 0 ? 'DUE' : 'CLEAR'}</Text>
+              <View style={styles.compactShopStatus}>
+                <View style={[styles.accountBadge, outstanding > 0 ? styles.accountBadgeDue : styles.accountBadgeClear]}>
+                  <Text style={styles.accountBadgeText}>{outstanding > 0 ? 'DUE' : 'CLEAR'}</Text>
+                </View>
               </View>
             </View>
             <View style={styles.compactCreditRow}>
@@ -1611,6 +1782,14 @@ export default function CreateOrderScreen() {
               </View>
             </View>
           </LinearGradient>
+
+          <View style={styles.billSummaryStrip}>
+            <View style={styles.billSummaryIcon}>
+              <Ionicons name="receipt-outline" size={17} color={colors.accent} />
+            </View>
+            <Text style={styles.billSummaryLabel}>Active bills</Text>
+            <Text style={styles.billSummaryValue}>{activeBills} of {maxBills}</Text>
+          </View>
 
           <View style={styles.compactStatsRow}>
             <View style={styles.compactStat}>
@@ -1626,9 +1805,9 @@ export default function CreateOrderScreen() {
             </View>
             <View style={styles.compactStatDivider} />
             <View style={styles.compactStat}>
-              <Text style={styles.compactStatLabel}>Bills</Text>
-              <Text style={styles.compactStatValue}>{activeBills}/{maxBills}</Text>
-              <Text style={styles.compactStatUnit}>active</Text>
+              <Text style={styles.compactStatLabel}>Pending</Text>
+              <Text style={styles.compactStatValue}>{formatCurrency(pendingOrderValue)}</Text>
+              <Text style={styles.compactStatUnit}>LKR orders</Text>
             </View>
           </View>
 
@@ -1736,15 +1915,22 @@ export default function CreateOrderScreen() {
             <View style={styles.flowList}>
               {shopBills.map((bill) => (
                 <TouchableOpacity key={bill.id} style={styles.billCard} onPress={() => chooseBill(bill)}>
-                  <View>
-                    <Text style={styles.billNumber}>Bill #{bill.id.slice(0, 8).toUpperCase()}</Text>
+                  <View style={styles.billMain}>
+                    <View style={styles.billTitleRow}>
+                      <Text style={styles.billNumber}>Bill #{getBillNumber(bill)}</Text>
+                      {isLegacyBill(bill) ? (
+                        <View style={styles.legacyBadge}>
+                          <Text style={styles.legacyBadgeText}>Past Invoice</Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text style={styles.catalogMeta}>{formatBillDate(bill.created_at)}</Text>
                   </View>
                   <View style={styles.shopListSide}><Text style={styles.shopOutstanding}>{formatCurrency(bill.outstanding)} LKR</Text><Text style={styles.shopListMeta}>Outstanding</Text></View>
                 </TouchableOpacity>
               ))}
               {!shopBills.length ? (
-                <Text style={styles.emptyText}>No approved bills with an outstanding balance.</Text>
+                <Text style={styles.emptyText}>No invoices are available for this action.</Text>
               ) : null}
             </View>
           )}
@@ -1757,7 +1943,17 @@ export default function CreateOrderScreen() {
         <>
           {renderFlowHeader('Record Collection', selectedShop?.name)}
           <View style={styles.summaryDetailCard}>
-            <Text style={styles.modalLabel}>Bill</Text><Text style={styles.catalogName}>#{selectedBill.id.slice(0, 8).toUpperCase()}</Text>
+            <View style={styles.billTitleRow}>
+              <View style={styles.billMain}>
+                <Text style={styles.modalLabel}>Bill</Text>
+                <Text style={styles.catalogName}>#{getBillNumber(selectedBill)}</Text>
+              </View>
+              {isLegacyBill(selectedBill) ? (
+                <View style={styles.legacyBadge}>
+                  <Text style={styles.legacyBadgeText}>Past Invoice</Text>
+                </View>
+              ) : null}
+            </View>
             <Text style={styles.modalLabel}>Outstanding</Text><Text style={styles.summaryGrandValue}>{formatCurrency(selectedBill.outstanding)} LKR</Text>
             <TextInput placeholder="Amount" placeholderTextColor={colors.textMuted} keyboardType="decimal-pad" style={styles.searchInput} value={collectionAmount} onChangeText={setCollectionAmount} />
             <TextInput placeholder="Notes (optional)" placeholderTextColor={colors.textMuted} style={[styles.searchInput, styles.notesInput]} multiline value={collectionNotes} onChangeText={setCollectionNotes} />
@@ -1768,9 +1964,59 @@ export default function CreateOrderScreen() {
     }
 
     if (flowStep === 'return' && selectedBill) {
+      if (usesAmountReturn(selectedBill)) {
+        return (
+          <>
+            {renderFlowHeader('Return Credit', `Bill #${getBillNumber(selectedBill)}`)}
+            <View style={styles.summaryDetailCard}>
+              <View style={styles.billTitleRow}>
+                <View style={styles.billMain}>
+                  <Text style={styles.modalLabel}>Past Invoice</Text>
+                  <Text style={styles.catalogName}>#{getBillNumber(selectedBill)}</Text>
+                </View>
+                <View style={styles.legacyBadge}>
+                  <Text style={styles.legacyBadgeText}>Amount Return</Text>
+                </View>
+              </View>
+              <Text style={styles.modalLabel}>Outstanding</Text>
+              <Text style={styles.summaryGrandValue}>
+                {formatCurrency(selectedBill.outstanding)} LKR
+              </Text>
+              <TextInput
+                placeholder="Return amount"
+                placeholderTextColor={colors.textMuted}
+                keyboardType="decimal-pad"
+                style={styles.searchInput}
+                value={legacyReturnAmount}
+                onChangeText={setLegacyReturnAmount}
+              />
+              <TextInput
+                placeholder="Reason or notes (optional)"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.searchInput, styles.notesInput]}
+                multiline
+                value={legacyReturnNotes}
+                onChangeText={setLegacyReturnNotes}
+              />
+              <Text style={styles.legacyReturnHelp}>
+                This reduces the past invoice balance only. Product stock and current credit limits are not changed.
+              </Text>
+              <TouchableOpacity
+                style={[styles.placeOrderButton, billActionLoading && styles.buttonDisabled]}
+                onPress={submitShopReturn}
+                disabled={billActionLoading}
+              >
+                <Text style={styles.placeOrderText}>
+                  {billActionLoading ? 'Recording...' : 'Record Return Credit'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        );
+      }
       return (
         <>
-          {renderFlowHeader('Return Products', `Bill #${selectedBill.id.slice(0, 8).toUpperCase()}`)}
+          {renderFlowHeader('Return Products', `Bill #${getBillNumber(selectedBill)}`)}
           <View style={styles.flowList}>
             {returnItems.map((item) => (
               <View key={item.order_item_id} style={styles.returnFlowRow}>
@@ -1964,7 +2210,7 @@ export default function CreateOrderScreen() {
                 <View style={styles.shopStatItem}>
                   <Text style={styles.shopStatLabel}>Available Credit</Text>
                   <Text style={[styles.shopStatValue, { color: colors.accent }]}>
-                    {Math.max(0, Number(selectedShop.max_bill_amount) - Number(selectedShop.current_outstanding)).toFixed(2)} LKR
+                    {Number(selectedShop.available_credit ?? availableCredit).toFixed(2)} LKR
                   </Text>
                 </View>
                 <View style={styles.shopStatItem}>
@@ -2218,14 +2464,24 @@ export default function CreateOrderScreen() {
               <View style={styles.quantityEntryHeader}>
                 <View style={styles.quantityEntryIcon}>
                   <Ionicons
-                    name={quantityEntry?.mode === 'case' ? 'cube-outline' : 'beer-outline'}
+                    name={
+                      quantityEntry?.mode === 'case'
+                        ? 'cube-outline'
+                        : quantityEntry?.mode === 'free'
+                          ? 'gift-outline'
+                          : 'beer-outline'
+                    }
                     size={22}
                     color={colors.accent}
                   />
                 </View>
                 <View style={styles.quantityEntryTitleWrap}>
                   <Text style={styles.quantityEntryTitle}>
-                    {quantityEntry?.mode === 'case' ? 'Enter Cases' : 'Enter Individual Units'}
+                    {quantityEntry?.mode === 'case'
+                      ? 'Enter Cases'
+                      : quantityEntry?.mode === 'free'
+                        ? 'Enter Free Units'
+                        : 'Enter Individual Units'}
                   </Text>
                   <Text style={styles.quantityEntryProduct} numberOfLines={2}>
                     {quantityEntry?.product.name}
@@ -2248,7 +2504,9 @@ export default function CreateOrderScreen() {
               <Text style={styles.quantityEntryHelp}>
                 {quantityEntry?.mode === 'case'
                   ? `1 case = ${quantityEntry ? getCaseSize(quantityEntry.product) : 0} units`
-                  : `Enter loose units from 0 to ${quantityEntry ? getCaseSize(quantityEntry.product) - 1 : 0}`}
+                  : quantityEntry?.mode === 'free'
+                    ? 'Enter the total number of free individual units.'
+                    : `Enter loose units from 0 to ${quantityEntry ? getCaseSize(quantityEntry.product) - 1 : 0}`}
               </Text>
               <View style={styles.quantityEntryActions}>
                 <TouchableOpacity style={styles.quantityEntryCancel} onPress={closeQuantityEntry}>
@@ -2734,6 +2992,29 @@ const makeStyles = (colors: ThemeColors) =>
   shopHeroName: { color: '#fff', fontSize: 19, fontWeight: '900', letterSpacing: -0.3 },
   shopHeroAddress: { color: 'rgba(255,255,255,0.82)', fontSize: 12, lineHeight: 17 },
   accountBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, borderWidth: 1 },
+  compactShopStatus: { alignItems: 'flex-end', gap: 5 },
+  billSummaryStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  billSummaryIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
+  },
+  billSummaryLabel: { flex: 1, color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+  billSummaryValue: { color: colors.text, fontSize: 15, fontWeight: '900' },
   accountBadgeDue: { backgroundColor: 'rgba(127,29,29,0.34)', borderColor: 'rgba(255,255,255,0.28)' },
   accountBadgeClear: { backgroundColor: 'rgba(6,78,59,0.34)', borderColor: 'rgba(255,255,255,0.28)' },
   accountBadgeText: { color: '#fff', fontSize: 10, fontWeight: '900', letterSpacing: 0.7 },
@@ -2867,6 +3148,12 @@ const makeStyles = (colors: ThemeColors) =>
     fontWeight: '600',
   },
   freeCompactPanel: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceMuted, borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 9, paddingVertical: 6 },
+  freeQuantityEntry: {
+    minWidth: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
   stepperRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 2 },
   stepperButton: {
     width: 30,
@@ -2928,7 +3215,37 @@ const makeStyles = (colors: ThemeColors) =>
     padding: 15,
     gap: 12,
   },
+  billMain: {
+    flex: 1,
+    gap: 3,
+  },
+  billTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
   billNumber: { color: colors.text, fontWeight: '800' },
+  legacyBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.warningSurface,
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  legacyBadgeText: {
+    color: colors.warning,
+    fontSize: 9,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  legacyReturnHelp: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   notesInput: { minHeight: 84, textAlignVertical: 'top' },
   returnFlowRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderRadius: 14, borderWidth: 1, borderColor: colors.border, padding: 13 },
   returnFlowInput: { width: 72, minHeight: 44, borderRadius: 10, borderWidth: 1, borderColor: colors.borderStrong, backgroundColor: colors.surfaceMuted, color: colors.text, textAlign: 'center' },

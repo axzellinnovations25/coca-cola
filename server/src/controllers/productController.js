@@ -227,7 +227,8 @@ exports.recordPayment = async (req, res) => {
       message: 'Payment recorded successfully',
       payment_id: result.id,
       sms_sent: result.sms_sent || false,
-      sms_error: result.sms_error || null
+      sms_error: result.sms_error || null,
+      sms_skipped: result.sms_skipped || false
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -245,7 +246,8 @@ exports.recordPaymentAsAdmin = async (req, res) => {
       message: 'Collection recorded successfully',
       payment_id: result.id,
       sms_sent: result.sms_sent || false,
-      sms_error: result.sms_error || null
+      sms_error: result.sms_error || null,
+      sms_skipped: result.sms_skipped || false
     });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -256,14 +258,37 @@ exports.recordReturn = async (req, res) => {
   try {
     const order_id = req.params.id;
     const sales_rep_id = req.user && req.user.id;
-    const { items } = req.body;
-    const result = await shopService.recordReturn({ order_id, sales_rep_id, items });
+    const { items, notes, idempotency_key } = req.body;
+    const result = await shopService.recordReturn({
+      order_id,
+      sales_rep_id,
+      items,
+      notes,
+      idempotency_key,
+    });
     
     res.json({ 
       message: 'Return recorded successfully',
-      order_id: result.id,
-      total: result.total
+      return: result
     });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.resolveCustomerCredit = async (req, res) => {
+  try {
+    const order_id = req.params.id;
+    const admin_id = req.user && req.user.id;
+    const { resolution_type, amount, notes } = req.body;
+    const resolution = await shopService.resolveCustomerCredit({
+      order_id,
+      admin_id,
+      resolution_type,
+      amount,
+      notes,
+    });
+    res.json({ message: 'Customer credit resolved successfully', resolution });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

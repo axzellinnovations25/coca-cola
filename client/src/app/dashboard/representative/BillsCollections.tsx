@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch, clearCache } from '../../../utils/api';
 
+const createReturnIdempotencyKey = () =>
+  `return-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+
 interface Bill {
   id: string;
   created_at: string;
@@ -72,6 +75,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
   const [returnQuantities, setReturnQuantities] = useState<Record<string, number>>({});
   const [returnLoading, setReturnLoading] = useState(false);
   const [returnError, setReturnError] = useState('');
+  const [returnIdempotencyKey, setReturnIdempotencyKey] = useState('');
 
   const triggerRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -130,6 +134,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
     setReturnLoading(true);
     setReturnError('');
     setReturnOrderId(bill.id);
+    setReturnIdempotencyKey(createReturnIdempotencyKey());
     try {
       const response = await apiFetch(`/api/marudham/orders/${bill.id}/details`);
       const items = response.order?.items || [];
@@ -506,23 +511,7 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
       
       setLastPaymentId(response.payment_id); // Store the payment ID for SMS sending
       
-      // Auto-send SMS after payment recording
-      if (response.sms_sent) {
-        setSmsStatus({ 
-          type: 'success', 
-          message: 'Payment recorded and SMS sent successfully to shop owner!' 
-        });
-      } else if (response.sms_error) {
-        setSmsStatus({ 
-          type: 'error', 
-          message: `Payment recorded but SMS failed: ${response.sms_error}` 
-        });
-      } else {
-        setSmsStatus({ 
-          type: 'error', 
-          message: 'Payment recorded but SMS could not be sent - shop phone number not available' 
-        });
-      }
+      setSmsStatus({ type: 'success', message: 'Payment recorded successfully.' });
       
       const shop = shops.find(s => s.bills?.some(b => b.id === selectedBill.id));
       setPrintReceipt({
@@ -571,13 +560,17 @@ export default function BillsCollections({ refreshKey, onPaymentRecorded }: Bill
     try {
       await apiFetch(`/api/marudham/bills/${returnOrderId}/return`, {
         method: 'POST',
-        body: JSON.stringify({ items: itemsToReturn })
+        body: JSON.stringify({
+          items: itemsToReturn,
+          idempotency_key: returnIdempotencyKey || createReturnIdempotencyKey(),
+        })
       });
 
       setShowReturnModal(false);
       setReturnOrderId(null);
       setReturnItems([]);
       setReturnQuantities({});
+      setReturnIdempotencyKey('');
       setShowPaymentModal(false);
       setSelectedBill(null);
       clearCache('/api/marudham/bills/representative');

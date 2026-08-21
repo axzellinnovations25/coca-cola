@@ -111,6 +111,7 @@ router.get('/bills/representative', authenticateJWT, requireSalesRep, productCon
 router.post('/bills/:id/payment', authenticateJWT, requireSalesRep, productController.recordPayment);
 router.post('/bills/:id/payment/admin', authenticateJWT, requireAdminOrSuperadmin, productController.recordPaymentAsAdmin);
 router.post('/bills/:id/return', authenticateJWT, requireSalesRep, productController.recordReturn);
+router.post('/bills/:id/customer-credit/resolve', authenticateJWT, requireAdminOrSuperadmin, productController.resolveCustomerCredit);
 
 // Representative collections routes
 router.get('/collections/representative', authenticateJWT, requireSalesRep, productController.getRepresentativeCollections);

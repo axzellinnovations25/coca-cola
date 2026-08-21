@@ -9,6 +9,10 @@ interface Shop {
   max_bill_amount: number;
   max_active_bills: number;
   current_outstanding: number;
+  collectible_outstanding: number;
+  pending_order_value: number;
+  credit_used: number;
+  available_credit: number;
   active_bills: number;
 }
 
@@ -611,40 +615,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       setSmsSent(false);
       setMessageStatus({ type: null, message: '' });
       
-      // Auto-send SMS after order creation
-      if (orderToConfirm.shop.phone) {
-        setSendingSMS(true);
-        try {
-          const smsResponse = await apiFetch(`/api/marudham/orders/${res.order.id}/send-sms`, {
-            method: 'POST'
-          });
-          
-          if (smsResponse.success) {
-            setSmsSent(true);
-            setMessageStatus({ 
-              type: 'success', 
-              message: 'Order created and SMS sent successfully to shop owner!' 
-            });
-          } else {
-            setMessageStatus({ 
-              type: 'error', 
-              message: smsResponse.error || 'Order created but failed to send SMS' 
-            });
-          }
-        } catch (smsError: any) {
-          setMessageStatus({ 
-            type: 'error', 
-            message: `Order created but SMS failed: ${smsError.message}` 
-          });
-        } finally {
-          setSendingSMS(false);
-        }
-      } else {
-        setMessageStatus({ 
-          type: 'error', 
-          message: 'Order created but shop phone number not available for SMS' 
-        });
-      }
+      setMessageStatus({ type: 'success', message: 'Order created successfully.' });
       
     } catch (err: any) {
       setError(err.message);
@@ -681,7 +652,11 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
   if (emptyItems.length > 0) {
     validationError = `"${emptyItems[0].name}" has no quantity — set a paid or free quantity, or remove it.`;
   } else if (selectedShop) {
-    const availableCredit = selectedShop.max_bill_amount - selectedShop.current_outstanding;
+    const availableCredit = Number(selectedShop.available_credit ?? (
+      selectedShop.max_bill_amount
+      - selectedShop.current_outstanding
+      - Number(selectedShop.pending_order_value || 0)
+    ));
     if (orderTotal > availableCredit) {
       validationError = `Order total exceeds available credit (${availableCredit.toFixed(2)} LKR).`;
     } else if (selectedShop.active_bills >= selectedShop.max_active_bills) {
@@ -787,6 +762,12 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                       </span>
                     </div>
                     <div>
+                      <span className="font-medium text-gray-600">Pending Orders:</span>
+                      <span className="ml-1 font-semibold text-amber-600">
+                        {Number(selectedShop.pending_order_value || 0).toFixed(2)} LKR
+                      </span>
+                    </div>
+                    <div>
                       <span className="font-medium text-gray-600">Maximum Bills:</span>
                       <span className="ml-1 font-semibold text-gray-900">{selectedShop.max_active_bills}</span>
                     </div>
@@ -797,7 +778,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                     <div>
                       <span className="font-medium text-gray-600">Available:</span>
                       <span className="ml-1 font-semibold text-gray-900">
-                        {Number(selectedShop.max_bill_amount - selectedShop.current_outstanding).toFixed(2)} LKR
+                        {Number(selectedShop.available_credit ?? 0).toFixed(2)} LKR
                       </span>
                     </div>
                   </div>

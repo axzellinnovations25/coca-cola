@@ -46,6 +46,9 @@ interface OrderDetails {
   refund_due?: number;
   out_of_date_value?: number;
   out_of_date_credit?: number;
+  return_credit?: number;
+  approved_credit?: number;
+  resolved_customer_credit?: number;
   shop: {
     name: string;
     address: string;
@@ -56,6 +59,27 @@ interface OrderDetails {
     last_name: string;
     email: string;
   };
+  returns?: Array<{
+    id: string;
+    credit_note_id?: string;
+    total_credit: number;
+    status: string;
+    notes?: string;
+    created_at: string;
+    items: Array<{
+      product_name?: string;
+      quantity: number;
+      unit_credit: number;
+      line_credit: number;
+    }>;
+  }>;
+  customer_credit_resolutions?: Array<{
+    id: string;
+    resolution_type: 'refund' | 'account_credit';
+    amount: number;
+    notes?: string;
+    created_at: string;
+  }>;
   items: Array<{
     product_id: string;
     name: string;
@@ -102,6 +126,7 @@ export default function OrderManagement() {
   const [page, setPage] = useState(1);
   const [approvingOrder, setApprovingOrder] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetails | null>(null);
+  const [resolvingCustomerCredit, setResolvingCustomerCredit] = useState(false);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [orderToApprove, setOrderToApprove] = useState<Order | null>(null);
@@ -458,6 +483,30 @@ export default function OrderManagement() {
       setLoadingOrderDetails(false);
       setLoadingPayments(false);
       setLoadingOutOfDateHistory(false);
+    }
+  };
+
+  const handleResolveCustomerCredit = async (resolutionType: 'refund' | 'account_credit') => {
+    if (!selectedOrder || Number(selectedOrder.refund_due || 0) <= 0) return;
+    const label = resolutionType === 'refund' ? 'refund' : 'customer account credit';
+    if (!window.confirm(`Record the full ${Number(selectedOrder.refund_due).toFixed(2)} LKR as ${label}?`)) return;
+
+    setResolvingCustomerCredit(true);
+    try {
+      await apiFetch(`/api/marudham/bills/${selectedOrder.id}/customer-credit/resolve`, {
+        method: 'POST',
+        body: JSON.stringify({
+          resolution_type: resolutionType,
+          amount: Number(selectedOrder.refund_due),
+        }),
+      });
+      clearCache(`/api/marudham/orders/${selectedOrder.id}`);
+      const refreshed = await apiFetch(`/api/marudham/orders/${selectedOrder.id}`);
+      setSelectedOrder(refreshed.order);
+    } catch (err: any) {
+      alert(err.message || 'Failed to resolve customer credit.');
+    } finally {
+      setResolvingCustomerCredit(false);
     }
   };
 
@@ -1265,7 +1314,7 @@ export default function OrderManagement() {
                 )}
 
                 {/* Financial Summary */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-blue-600 mb-1">Order Total</p>
                     <p className="text-lg font-bold text-blue-800">{Number(selectedOrder.total || 0).toFixed(2)} LKR</p>
@@ -1273,6 +1322,14 @@ export default function OrderManagement() {
                   <div className="bg-violet-50 border border-violet-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-violet-600 mb-1">Out-of-date Credit</p>
                     <p className="text-lg font-bold text-violet-800">{Number(selectedOrder.out_of_date_credit || 0).toFixed(2)} LKR</p>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-orange-600 mb-1">Return Credit</p>
+                    <p className="text-lg font-bold text-orange-800">{Number(selectedOrder.return_credit || 0).toFixed(2)} LKR</p>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-center">
+                    <p className="text-xs font-semibold text-slate-600 mb-1">Net Collectible</p>
+                    <p className="text-lg font-bold text-slate-800">{Number(selectedOrder.net_due || 0).toFixed(2)} LKR</p>
                   </div>
                   <div className="bg-green-50 border border-green-100 rounded-xl p-4 text-center">
                     <p className="text-xs font-semibold text-green-600 mb-1">Total Paid</p>
@@ -1283,10 +1340,69 @@ export default function OrderManagement() {
                     <p className="text-lg font-bold text-red-800">{Number(selectedOrder.outstanding || 0).toFixed(2)} LKR</p>
                   </div>
                   <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
-                    <p className="text-xs font-semibold text-amber-600 mb-1">Refund Due</p>
+                    <p className="text-xs font-semibold text-amber-600 mb-1">Customer Credit / Refund</p>
                     <p className="text-lg font-bold text-amber-800">{Number(selectedOrder.refund_due || 0).toFixed(2)} LKR</p>
+                    {Number(selectedOrder.refund_due || 0) > 0 && (
+                      <div className="mt-2 flex justify-center gap-1">
+                        <button
+                          type="button"
+                          disabled={resolvingCustomerCredit}
+                          onClick={() => handleResolveCustomerCredit('refund')}
+                          className="rounded-md bg-amber-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                        >
+                          Refunded
+                        </button>
+                        <button
+                          type="button"
+                          disabled={resolvingCustomerCredit}
+                          onClick={() => handleResolveCustomerCredit('account_credit')}
+                          className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-semibold text-amber-800 disabled:opacity-50"
+                        >
+                          Account credit
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
+
+                {!!selectedOrder.customer_credit_resolutions?.length && (
+                  <div className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Customer credit history</p>
+                    <div className="mt-2 space-y-1">
+                      {selectedOrder.customer_credit_resolutions.map(resolution => (
+                        <div key={resolution.id} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="text-gray-600">
+                            {resolution.resolution_type === 'refund' ? 'Refunded' : 'Moved to account credit'} · {new Date(resolution.created_at).toLocaleString()}
+                          </span>
+                          <span className="font-semibold text-amber-800">{Number(resolution.amount).toFixed(2)} LKR</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!!selectedOrder.returns?.length && (
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Return Credit Notes</p>
+                    <div className="space-y-2">
+                      {selectedOrder.returns.map((returnDocument) => (
+                        <div key={returnDocument.id} className="rounded-xl border border-orange-100 bg-orange-50/50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-gray-900">Credit note {returnDocument.credit_note_id || returnDocument.id}</p>
+                              <p className="text-xs text-gray-500">{new Date(returnDocument.created_at).toLocaleString()}</p>
+                            </div>
+                            <p className="text-sm font-bold text-orange-700">-{Number(returnDocument.total_credit).toFixed(2)} LKR</p>
+                          </div>
+                          <p className="mt-2 text-xs text-gray-600">
+                            {returnDocument.items.map(item => `${item.product_name || 'Product'} × ${item.quantity}`).join(', ')}
+                          </p>
+                          {returnDocument.notes && <p className="mt-1 text-xs text-gray-500">{returnDocument.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Payment History */}
                 {payments && payments.length > 0 && (
