@@ -790,6 +790,185 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
   }
 }
 
+async function deleteOrderAsAdmin({ order_id, admin_id }) {
+  if (!order_id) throw new Error('Order ID is required');
+  if (!admin_id) throw new Error('Admin not found');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const orderRes = await client.query(
+      `SELECT id, shop_id, sales_rep_id, status, total
+       FROM orders
+       WHERE id = $1
+       FOR UPDATE`,
+      [order_id]
+    );
+    if (orderRes.rows.length === 0) {
+      const error = new Error('Order not found');
+      error.statusCode = 404;
+      throw error;
+    }
+    const order = orderRes.rows[0];
+
+    const itemRes = await client.query(
+      `SELECT id, product_id, quantity
+       FROM order_items
+       WHERE order_id = $1
+       FOR UPDATE`,
+      [order_id]
+    );
+    const orderedQuantityByProduct = new Map();
+    for (const item of itemRes.rows) {
+      if (!item.product_id) continue;
+      orderedQuantityByProduct.set(
+        item.product_id,
+        (orderedQuantityByProduct.get(item.product_id) || 0) + Number(item.quantity || 0)
+      );
+    }
+
+    // Returns already put confirmed quantities back into stock. Restore only the
+    // still-deducted quantity when an approved order is deleted.
+    const returnedRes = await client.query(
+      `SELECT ri.product_id, COALESCE(SUM(ri.quantity), 0) AS quantity
+       FROM return_items ri
+       JOIN returns r ON r.id = ri.return_id
+       WHERE r.order_id = $1 AND r.status = 'confirmed'
+       GROUP BY ri.product_id`,
+      [order_id]
+    );
+    const returnedQuantityByProduct = new Map(
+      returnedRes.rows.map((row) => [row.product_id, Number(row.quantity || 0)])
+    );
+
+    const paymentSummaryRes = await client.query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(amount::numeric), 0) AS total
+       FROM payments
+       WHERE order_id = $1`,
+      [order_id]
+    );
+    const paymentSummary = paymentSummaryRes.rows[0];
+
+    const inventoryAdjustments = [];
+    if (order.status === 'pending') {
+      for (const [productId, quantity] of orderedQuantityByProduct) {
+        if (quantity <= 0) continue;
+        await client.query(
+          `UPDATE products
+           SET reserved_stock = GREATEST(reserved_stock - $1, 0), updated_at = NOW()
+           WHERE id = $2`,
+          [quantity, productId]
+        );
+        inventoryAdjustments.push({ product_id: productId, reserved_stock_released: quantity, stock_restored: 0 });
+      }
+    } else if (order.status === 'approved') {
+      for (const [productId, orderedQuantity] of orderedQuantityByProduct) {
+        const returnedQuantity = returnedQuantityByProduct.get(productId) || 0;
+        const stockToRestore = Math.max(orderedQuantity - returnedQuantity, 0);
+        if (stockToRestore > 0) {
+          await client.query(
+            'UPDATE products SET stock = stock + $1, updated_at = NOW() WHERE id = $2',
+            [stockToRestore, productId]
+          );
+        }
+        inventoryAdjustments.push({
+          product_id: productId,
+          ordered_quantity: orderedQuantity,
+          already_returned_quantity: returnedQuantity,
+          reserved_stock_released: 0,
+          stock_restored: stockToRestore,
+        });
+      }
+    }
+
+    const paymentLogsDeleted = await client.query(
+      `DELETE FROM payment_logs
+       WHERE order_id = $1
+          OR payment_id IN (SELECT id FROM payments WHERE order_id = $1)
+       RETURNING id`,
+      [order_id]
+    );
+    const paymentsDeleted = await client.query(
+      'DELETE FROM payments WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const salesLogsDeleted = await client.query(
+      'DELETE FROM sales_quantity_logs WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const orderLogsDeleted = await client.query(
+      'DELETE FROM order_logs WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const creditNotesDeleted = await client.query(
+      'DELETE FROM credit_notes WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const returnItemsDeleted = await client.query(
+      `DELETE FROM return_items
+       WHERE return_id IN (SELECT id FROM returns WHERE order_id = $1)
+          OR order_item_id IN (SELECT id FROM order_items WHERE order_id = $1)
+       RETURNING id`,
+      [order_id]
+    );
+    const returnsDeleted = await client.query(
+      'DELETE FROM returns WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const customerCreditsDeleted = await client.query(
+      'DELETE FROM customer_credit_resolutions WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const outOfDateItemsDeleted = await client.query(
+      `DELETE FROM out_of_date_items
+       WHERE out_of_date_id IN (SELECT id FROM out_of_date WHERE order_id = $1)
+       RETURNING id`,
+      [order_id]
+    );
+    const outOfDateDeleted = await client.query(
+      'DELETE FROM out_of_date WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const orderItemsDeleted = await client.query(
+      'DELETE FROM order_items WHERE order_id = $1 RETURNING id',
+      [order_id]
+    );
+    const orderDeleted = await client.query(
+      'DELETE FROM orders WHERE id = $1 RETURNING id',
+      [order_id]
+    );
+    if (orderDeleted.rowCount !== 1) throw new Error('Order deletion failed');
+
+    await client.query('COMMIT');
+
+    return {
+      order_id,
+      deleted_by: admin_id,
+      status: order.status,
+      order_total: Number(order.total || 0),
+      collections_removed: paymentsDeleted.rowCount,
+      collection_total_removed: Number(paymentSummary.total || 0),
+      payment_logs_removed: paymentLogsDeleted.rowCount,
+      order_items_removed: orderItemsDeleted.rowCount,
+      order_logs_removed: orderLogsDeleted.rowCount,
+      sales_logs_removed: salesLogsDeleted.rowCount,
+      returns_removed: returnsDeleted.rowCount,
+      return_items_removed: returnItemsDeleted.rowCount,
+      credit_notes_removed: creditNotesDeleted.rowCount,
+      out_of_date_records_removed: outOfDateDeleted.rowCount,
+      out_of_date_items_removed: outOfDateItemsDeleted.rowCount,
+      customer_credit_resolutions_removed: customerCreditsDeleted.rowCount,
+      inventory_adjustments: inventoryAdjustments,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function listOrders(sales_rep_id) {
   const result = await pool.query(`
     SELECT o.id, s.name as shop_name, o.created_at, o.total, o.status,
@@ -2632,6 +2811,7 @@ module.exports.approveOrder = approveOrder;
 module.exports.rejectOrder = rejectOrder;
 module.exports.updatePendingOrderForSalesRep = updatePendingOrderForSalesRep;
 module.exports.updateOrderAsAdmin = updateOrderAsAdmin;
+module.exports.deleteOrderAsAdmin = deleteOrderAsAdmin;
 module.exports.getPendingOrdersCount = getPendingOrdersCount;
 module.exports.getPendingOrders = getPendingOrders; 
 module.exports.getOrderDetails = getOrderDetails; 

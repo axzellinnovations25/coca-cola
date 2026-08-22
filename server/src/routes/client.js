@@ -86,6 +86,7 @@ router.get('/orders/:order_id/payments', authenticateJWT, requireAdminOrSuperadm
 router.put('/orders/:order_id/approve', authenticateJWT, requireAdminOrSuperadmin, productController.approveOrder);
 router.put('/orders/:order_id/reject', authenticateJWT, requireAdminOrSuperadmin, productController.rejectOrder);
 router.put('/orders/:order_id/admin', authenticateJWT, requireAdminOrSuperadmin, productController.updateOrderAsAdmin);
+router.delete('/orders/:order_id/admin', authenticateJWT, requireAdminOrSuperadmin, productController.deleteOrderAsAdmin);
 router.post('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.createOutOfDate);
 router.get('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderOutOfDateHistory);
 

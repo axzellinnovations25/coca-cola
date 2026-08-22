@@ -395,6 +395,20 @@ exports.getOrderPayments = async (req, res) => {
   }
 };
 
+exports.deleteOrderAsAdmin = async (req, res) => {
+  try {
+    const { order_id } = req.params;
+    const admin_id = req.user && req.user.id;
+    const deletion = await shopService.deleteOrderAsAdmin({ order_id, admin_id });
+    res.json({
+      message: 'Order and all related records deleted successfully',
+      deletion,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+};
+
 // New controller for sales representatives to get their order details
 exports.getOrderDetailsForSalesRep = async (req, res) => {
   try {

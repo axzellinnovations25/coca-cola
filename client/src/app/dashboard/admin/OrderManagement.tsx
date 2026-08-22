@@ -150,6 +150,7 @@ export default function OrderManagement() {
   const [sendingSMS, setSendingSMS] = useState(false);
   const [showSuccessNotification, setShowSuccessNotification] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [deletingOrder, setDeletingOrder] = useState<string | null>(null);
   
   // Reject order state variables
   const [rejectingOrder, setRejectingOrder] = useState<string | null>(null);
@@ -320,6 +321,50 @@ export default function OrderManagement() {
 
   const triggerRefresh = () => {
     setRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleDeleteOrder = async (order: { id: string; shop_name: string; total: number }) => {
+    const confirmed = window.confirm(
+      `Permanently delete this order?\n\nShop: ${order.shop_name}\nOrder: #${order.id.slice(0, 8)}\nTotal: ${Number(order.total || 0).toFixed(2)} LKR\n\nThis also removes its collections, payment history, returns, credits, logs, and order items. Inventory will be restored or released as needed. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingOrder(order.id);
+    try {
+      const response = await apiFetch(`/api/marudham/orders/${order.id}/admin`, {
+        method: 'DELETE'
+      });
+
+      clearCache('/api/marudham/orders');
+      clearCache('/api/marudham/orders/all');
+      clearCache(`/api/marudham/orders/${order.id}`);
+      setOrders(previous => previous.filter(existing => existing.id !== order.id));
+
+      if (selectedOrder?.id === order.id) {
+        setShowOrderModal(false);
+        setSelectedOrder(null);
+        setPayments([]);
+        setOutOfDateHistory([]);
+      }
+      if (editOrder?.id === order.id) {
+        setEditOrder(null);
+        setEditItems([]);
+        setEditNotes('');
+      }
+
+      const collectionsRemoved = Number(response.deletion?.collections_removed || 0);
+      setSuccessMessage(
+        `Order deleted permanently.${collectionsRemoved > 0
+          ? ` ${collectionsRemoved} collection${collectionsRemoved === 1 ? '' : 's'} removed.`
+          : ''}`
+      );
+      setShowSuccessNotification(true);
+      triggerRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete order.');
+    } finally {
+      setDeletingOrder(null);
+    }
   };
 
   const handleApproveOrder = async (orderId: string) => {
@@ -1054,6 +1099,10 @@ export default function OrderManagement() {
                         className="px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors">
                         Edit
                       </button>
+                      <button onClick={() => handleDeleteOrder(order)} disabled={deletingOrder === order.id}
+                        className="px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        {deletingOrder === order.id ? 'Deleting…' : 'Delete'}
+                      </button>
                       {order.status === 'pending' && (
                         <>
                           <button onClick={() => handleApproveClick(order)}
@@ -1605,7 +1654,19 @@ export default function OrderManagement() {
                 )}
 
                 {/* Footer Buttons */}
-                <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
+                <div className="flex flex-wrap justify-between gap-3 pt-2 border-t border-gray-100">
+                  <button
+                    onClick={() => handleDeleteOrder({
+                      id: selectedOrder.id,
+                      shop_name: selectedOrder.shop?.name || 'Unknown shop',
+                      total: selectedOrder.total
+                    })}
+                    disabled={deletingOrder === selectedOrder.id}
+                    className="px-4 py-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {deletingOrder === selectedOrder.id ? 'Deleting…' : 'Delete Permanently'}
+                  </button>
+                  <div className="flex gap-3">
                   <button onClick={() => setShowOrderModal(false)}
                     className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                     Close
@@ -1616,6 +1677,7 @@ export default function OrderManagement() {
                       Approve Order
                     </button>
                   )}
+                  </div>
                 </div>
               </div>
             )}
