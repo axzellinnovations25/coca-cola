@@ -378,8 +378,8 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
        WHERE shop_id = $1
          AND sales_rep_id = $2
          AND request_fingerprint = $3
-         AND created_at >= NOW() - INTERVAL '5 minutes'
-       ORDER BY created_at DESC
+         AND created_at::timestamptz >= NOW() - INTERVAL '5 minutes'
+       ORDER BY created_at::timestamptz DESC
        LIMIT 1`,
       [shop_id, sales_rep_id, requestFingerprint]
     );
