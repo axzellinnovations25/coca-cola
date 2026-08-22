@@ -5,9 +5,8 @@ const ORDER_FINANCIALS_CTES = `
     GROUP BY order_id
   ),
   out_of_date_credit_totals AS (
-    SELECT od.order_id, COALESCE(SUM(odi.line_total::numeric), 0) * 0.4 AS credit
+    SELECT od.order_id, COALESCE(SUM(od.credit_amount::numeric), 0) AS credit
     FROM out_of_date od
-    JOIN out_of_date_items odi ON odi.out_of_date_id = od.id
     GROUP BY od.order_id
   ),
   return_credit_totals AS (

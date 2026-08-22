@@ -298,9 +298,9 @@ exports.createOutOfDate = async (req, res) => {
   try {
     const { order_id } = req.params;
     const admin_id = req.user && req.user.id;
-    const { items, notes } = req.body;
+    const { items, notes, credit_amount } = req.body;
 
-    const result = await shopService.createOutOfDate({ order_id, admin_id, notes, items });
+    const result = await shopService.createOutOfDate({ order_id, admin_id, notes, items, credit_amount });
     res.json({ out_of_date: result });
   } catch (error) {
     res.status(400).json({ error: error.message });

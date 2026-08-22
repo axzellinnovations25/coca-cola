@@ -1222,10 +1222,16 @@ async function recordPaymentAsAdmin({ order_id, admin_id, amount, notes }) {
   return payment;
 }
 
-async function createOutOfDate({ order_id, admin_id, notes, items }) {
+async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount }) {
   if (!order_id) throw new Error('Order ID is required');
   if (!admin_id) throw new Error('Admin not found');
   if (!Array.isArray(items) || items.length === 0) throw new Error('Out-of-date items are required');
+
+  const parsedCreditAmount = Number(credit_amount);
+  if (credit_amount === '' || credit_amount === null || credit_amount === undefined || !Number.isFinite(parsedCreditAmount) || parsedCreditAmount < 0) {
+    throw new Error('A valid out-of-date credit amount is required');
+  }
+  const creditAmount = Math.round(parsedCreditAmount * 100) / 100;
 
   const normalizedItems = items.map(i => ({
     product_id: i.product_id,
@@ -1319,8 +1325,8 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
     }
 
     await client.query(
-      'INSERT INTO out_of_date (id, order_id, shop_id, admin_id, notes, created_at) VALUES ($1, $2, $3, $4, $5, now())',
-      [outOfDateId, order_id, order.shop_id, admin_id, notes || null]
+      'INSERT INTO out_of_date (id, order_id, shop_id, admin_id, notes, credit_amount, created_at) VALUES ($1, $2, $3, $4, $5, $6, now())',
+      [outOfDateId, order_id, order.shop_id, admin_id, notes || null, creditAmount]
     );
 
     let outOfDateValue = 0;
@@ -1345,7 +1351,7 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
         notes: notes || null,
         items: normalizedItems,
         out_of_date_value: outOfDateValue,
-        out_of_date_credit: outOfDateValue * 0.4
+        out_of_date_credit: creditAmount
       }
     });
 
@@ -1356,7 +1362,7 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
       order_id,
       shop_id: order.shop_id,
       out_of_date_value: outOfDateValue,
-      out_of_date_credit: outOfDateValue * 0.4
+      out_of_date_credit: creditAmount
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -1368,7 +1374,7 @@ async function createOutOfDate({ order_id, admin_id, notes, items }) {
 
 async function getOrderOutOfDateHistory(order_id) {
   const res = await pool.query(`
-    SELECT od.id, od.notes, od.created_at, od.admin_id,
+    SELECT od.id, od.notes, od.created_at, od.admin_id, od.credit_amount,
       u.first_name as admin_first_name, u.last_name as admin_last_name,
       COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
     FROM out_of_date od
@@ -1389,7 +1395,7 @@ async function getOrderOutOfDateHistory(order_id) {
       last_name: r.admin_last_name
     },
     out_of_date_value: Number(r.out_of_date_value),
-    out_of_date_credit: Number(r.out_of_date_value) * 0.4
+    out_of_date_credit: Number(r.credit_amount || 0)
   }));
 }
 

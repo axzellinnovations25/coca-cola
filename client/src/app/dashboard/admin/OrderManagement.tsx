@@ -136,6 +136,7 @@ export default function OrderManagement() {
   const [outOfDateHistory, setOutOfDateHistory] = useState<OutOfDateHistory[]>([]);
   const [loadingOutOfDateHistory, setLoadingOutOfDateHistory] = useState(false);
   const [outOfDateQty, setOutOfDateQty] = useState<Record<string, number>>({});
+  const [outOfDateCreditAmount, setOutOfDateCreditAmount] = useState('');
   const [outOfDateNotes, setOutOfDateNotes] = useState('');
   const [markingOutOfDate, setMarkingOutOfDate] = useState(false);
   const [outOfDateError, setOutOfDateError] = useState('');
@@ -174,6 +175,21 @@ export default function OrderManagement() {
   const [newProductFree, setNewProductFree] = useState(false);
   
   const ORDERS_PER_PAGE = 10;
+  const selectedOutOfDateValue = Object.entries(outOfDateQty).reduce((total, [key, qty]) => {
+    const unitPrice = Number(key.split(':')[1]);
+    const quantity = Number(qty);
+    if (!Number.isFinite(unitPrice) || !Number.isFinite(quantity) || quantity <= 0) return total;
+    return total + unitPrice * quantity;
+  }, 0);
+  const parsedOutOfDateCredit = Number(outOfDateCreditAmount);
+  const hasValidOutOfDateCredit = outOfDateCreditAmount !== ''
+    && Number.isFinite(parsedOutOfDateCredit)
+    && parsedOutOfDateCredit >= 0;
+  const selectedOutOfDateCredit = hasValidOutOfDateCredit ? parsedOutOfDateCredit : 0;
+  const currentOutstanding = Number(selectedOrder?.outstanding || 0);
+  const projectedOutstanding = Math.max(currentOutstanding - selectedOutOfDateCredit, 0);
+  const projectedOutstandingReduction = currentOutstanding - projectedOutstanding;
+  const projectedExcessCredit = Math.max(selectedOutOfDateCredit - currentOutstanding, 0);
 
   useEffect(() => {
     fetchOrders();
@@ -442,6 +458,7 @@ export default function OrderManagement() {
       setCollectionNotes('');
       setOutOfDateError('');
       setOutOfDateNotes('');
+      setOutOfDateCreditAmount('');
       setOutOfDateQty({});
       
       // Fetch order details first
@@ -565,12 +582,10 @@ export default function OrderManagement() {
 
   const handleMarkOutOfDate = async () => {
     if (!selectedOrder) return;
-
-    setMarkingOutOfDate(true);
     setOutOfDateError('');
 
     const items = Object.entries(outOfDateQty)
-      .filter(([_, qty]) => Number(qty) > 0)
+      .filter(([, qty]) => Number(qty) > 0)
       .map(([key, qty]) => {
         const [product_id, unit_price] = key.split(':');
         return { product_id, unit_price: Number(unit_price), qty: Number(qty) };
@@ -578,16 +593,40 @@ export default function OrderManagement() {
 
     if (items.length === 0) {
       setOutOfDateError('Please enter at least one qty to mark as out-of-date.');
-      setMarkingOutOfDate(false);
       return;
     }
 
+    if (!hasValidOutOfDateCredit) {
+      setOutOfDateError('Please enter a valid credit amount.');
+      return;
+    }
+
+    const markedValue = items.reduce((total, item) => total + item.unit_price * item.qty, 0);
+    const creditAmount = selectedOutOfDateCredit;
+    const outstandingBefore = Number(selectedOrder.outstanding || 0);
+    const outstandingAfter = Math.max(outstandingBefore - creditAmount, 0);
+    const outstandingReduction = outstandingBefore - outstandingAfter;
+    const excessCredit = Math.max(creditAmount - outstandingBefore, 0);
+    const confirmationLines = [
+      `Marked product value: ${markedValue.toFixed(2)} LKR`,
+      `Admin-set credit: ${creditAmount.toFixed(2)} LKR`,
+      `Outstanding reduction: ${outstandingReduction.toFixed(2)} LKR`,
+      `New outstanding: ${outstandingAfter.toFixed(2)} LKR`,
+    ];
+    if (excessCredit > 0) {
+      confirmationLines.push(`Customer credit/refund created: ${excessCredit.toFixed(2)} LKR`);
+    }
+    if (!window.confirm(`Apply out-of-date credit?\n\n${confirmationLines.join('\n')}`)) return;
+
+    setMarkingOutOfDate(true);
+
     try {
-      await apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`, {
+      const response = await apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`, {
         method: 'POST',
         body: JSON.stringify({
           notes: outOfDateNotes || undefined,
-          items
+          items,
+          credit_amount: creditAmount
         })
       });
 
@@ -605,8 +644,14 @@ export default function OrderManagement() {
       for (const item of order.items || []) reset[`${item.product_id}:${Number(item.unit_price)}`] = 0;
       setOutOfDateQty(reset);
       setOutOfDateNotes('');
+      setOutOfDateCreditAmount('');
 
-      setSuccessMessage('Out-of-date marked successfully');
+      const actualOutstanding = Number(order.outstanding || 0);
+      const actualReduction = Math.max(outstandingBefore - actualOutstanding, 0);
+      const issuedCredit = Number(response.out_of_date?.out_of_date_credit ?? creditAmount);
+      setSuccessMessage(
+        `Out-of-date marked. Credit: ${issuedCredit.toFixed(2)} LKR; outstanding reduced by ${actualReduction.toFixed(2)} LKR to ${actualOutstanding.toFixed(2)} LKR.`
+      );
       setShowSuccessNotification(true);
       triggerRefresh();
 
@@ -1250,7 +1295,7 @@ export default function OrderManagement() {
                   <div className="bg-white border border-gray-200 rounded-xl p-4">
                     <div className="flex items-center justify-between gap-3 mb-3">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Mark Out-of-date</p>
-                      <span className="text-xs text-gray-400">40% credit</span>
+                      <span className="text-xs text-gray-400">Admin-set credit</span>
                     </div>
 
                     {outOfDateError && (
@@ -1278,10 +1323,14 @@ export default function OrderManagement() {
                                 value={value === 0 ? '' : String(value)}
                                 onChange={(e) => {
                                   const raw = e.target.value;
-                                  const next = raw === '' ? 0 : Math.max(0, Math.floor(Number(raw)));
+                                  const parsed = Number(raw);
+                                  const next = raw === '' || !Number.isFinite(parsed)
+                                    ? 0
+                                    : Math.min(remainingQty, Math.max(0, Math.floor(parsed)));
                                   setOutOfDateQty(prev => ({ ...prev, [stateKey]: next }));
                                 }}
                                 inputMode="numeric"
+                                max={remainingQty}
                                 placeholder="Qty"
                                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
                               />
@@ -1290,6 +1339,45 @@ export default function OrderManagement() {
                         );
                       })}
                     </div>
+
+                    <div className="mt-4">
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Credit amount (LKR)</label>
+                      <input
+                        value={outOfDateCreditAmount}
+                        onChange={(e) => setOutOfDateCreditAmount(e.target.value)}
+                        inputMode="decimal"
+                        min="0"
+                        placeholder="Enter the credit for this bill"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                      />
+                      <p className="mt-1 text-xs text-gray-400">This amount is chosen by the admin and will be applied directly to the bill.</p>
+                    </div>
+
+                    {selectedOutOfDateValue > 0 && hasValidOutOfDateCredit && (
+                      <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-violet-100 bg-violet-50 p-3 md:grid-cols-4">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Selected value</p>
+                          <p className="mt-1 text-sm font-bold text-violet-900">{selectedOutOfDateValue.toFixed(2)} LKR</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Admin-set credit</p>
+                          <p className="mt-1 text-sm font-bold text-violet-900">{selectedOutOfDateCredit.toFixed(2)} LKR</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Outstanding reduced</p>
+                          <p className="mt-1 text-sm font-bold text-green-700">-{projectedOutstandingReduction.toFixed(2)} LKR</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">New outstanding</p>
+                          <p className="mt-1 text-sm font-bold text-red-700">{projectedOutstanding.toFixed(2)} LKR</p>
+                        </div>
+                        {projectedExcessCredit > 0 && (
+                          <p className="col-span-2 text-xs font-medium text-amber-700 md:col-span-4">
+                            The remaining {projectedExcessCredit.toFixed(2)} LKR will become customer credit/refund because the credit exceeds the outstanding balance.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     <div className="mt-3">
                       <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
@@ -1441,7 +1529,7 @@ export default function OrderManagement() {
                           <tr className="bg-gray-50 border-b border-gray-100">
                             <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
                             <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Value</th>
-                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Credit (40%)</th>
+                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Admin-set credit</th>
                             <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Notes</th>
                           </tr>
                         </thead>

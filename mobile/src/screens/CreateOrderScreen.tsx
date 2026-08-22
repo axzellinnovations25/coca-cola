@@ -152,15 +152,18 @@ const getCaseSize = (product: { name?: string; units_per_case?: number } | null 
 
 const getProductType = (product: Product) => {
   const value = `${product.name} ${product.description || ''} ${product.brand || ''}`.toLowerCase();
-  // These products belong to Core even when older DB rows are categorized as Energy Drinks.
-  if (/portello|porteelo/.test(value)) return 'Core Sparkling';
-  const category = product.category?.trim();
-  if (category && !/^others?$/i.test(category)) return category;
-  if (/monster|energy/.test(value)) return 'Energy Drinks';
+  // Product names take precedence over legacy category values. Monster is the
+  // only product range that belongs in the Energy Drinks catalog section.
+  if (/monster/.test(value)) return 'Energy Drinks';
   if (/water|aqua/.test(value)) return 'Water';
   if (/juice|nectar/.test(value)) return 'Juice';
-  if (/coke|coca|fanta|sprite|soda|sparkling/.test(value)) return 'Core Sparkling';
-  return 'Energy Drinks';
+  if (/coke|coca|fanta|sprite|portello|porteelo|soda|sparkling/.test(value)) return 'Core Sparkling';
+
+  const category = product.category?.trim();
+  if (category && !/^others?$/i.test(category) && !/^energy(?:\s+drinks?)?$/i.test(category)) {
+    return category;
+  }
+  return 'Core Sparkling';
 };
 
 const getProductSize = (product: Product) => {
