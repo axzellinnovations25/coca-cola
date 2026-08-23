@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '../../../utils/api';
+import { apiFetch, clearCache } from '../../../utils/api';
 
 interface SalesRep {
   id: string;
@@ -19,6 +19,14 @@ interface Collection {
   payment_amount: number;
   payment_notes: string | null;
   payment_date: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  reviewed_by_admin: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+  } | null;
   order_id: string;
   order_total: number;
   shop: Shop;
@@ -43,6 +51,8 @@ export default function AdminCollections() {
   const [repFilter, setRepFilter] = useState('');
   const [shopFilter, setShopFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'unreviewed' | 'reviewed'>('all');
+  const [updatingReview, setUpdatingReview] = useState<string | null>(null);
 
   const fetchCollections = useCallback(async () => {
     setLoading(true);
@@ -88,15 +98,17 @@ export default function AdminCollections() {
   const PAGE_SIZE = 20;
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return collections;
     const q = search.toLowerCase();
-    return collections.filter(c =>
-      c.shop.name.toLowerCase().includes(q) ||
-      `${c.sales_rep.first_name} ${c.sales_rep.last_name}`.toLowerCase().includes(q) ||
-      c.order_id.toLowerCase().includes(q) ||
-      (c.payment_notes || '').toLowerCase().includes(q)
-    );
-  }, [collections, search]);
+    return collections.filter(c => {
+      if (reviewFilter === 'reviewed' && !c.reviewed_at) return false;
+      if (reviewFilter === 'unreviewed' && c.reviewed_at) return false;
+      if (!q.trim()) return true;
+      return c.shop.name.toLowerCase().includes(q) ||
+        `${c.sales_rep.first_name} ${c.sales_rep.last_name}`.toLowerCase().includes(q) ||
+        c.order_id.toLowerCase().includes(q) ||
+        (c.payment_notes || '').toLowerCase().includes(q);
+    });
+  }, [collections, search, reviewFilter]);
 
   // Reset page when filters or search changes
   useEffect(() => { setPage(1); }, [filtered]);
@@ -109,7 +121,8 @@ export default function AdminCollections() {
     const total = filtered.reduce((s, c) => s + c.payment_amount, 0);
     const uniqueReps = new Set(filtered.map(c => c.sales_rep.id)).size;
     const uniqueShops = new Set(filtered.map(c => c.shop.id)).size;
-    return { total, count: filtered.length, uniqueReps, uniqueShops };
+    const reviewed = filtered.filter(c => Boolean(c.reviewed_at)).length;
+    return { total, count: filtered.length, uniqueReps, uniqueShops, reviewed, unreviewed: filtered.length - reviewed };
   }, [filtered]);
 
   // Per-rep breakdown
@@ -141,9 +154,35 @@ export default function AdminCollections() {
     setRepFilter('');
     setShopFilter('');
     setSearch('');
+    setReviewFilter('all');
   };
 
-  const hasFilters = startDate || endDate || repFilter || shopFilter || search;
+  const handleReviewToggle = async (collection: Collection) => {
+    const reviewed = !collection.reviewed_at;
+    setUpdatingReview(collection.payment_id);
+    try {
+      const response = await apiFetch(`/api/marudham/collections/admin/${collection.payment_id}/reviewed`, {
+        method: 'PATCH',
+        body: JSON.stringify({ reviewed }),
+      });
+      const updated = response.collection;
+      setCollections(current => current.map(item => item.payment_id === collection.payment_id
+        ? {
+            ...item,
+            reviewed_at: updated.reviewed_at || null,
+            reviewed_by: updated.reviewed_by || null,
+            reviewed_by_admin: updated.reviewed_by_admin || null,
+          }
+        : item));
+      clearCache('/api/marudham/collections/admin');
+    } catch (err: any) {
+      setError(err.message || 'Failed to update the collection review marker.');
+    } finally {
+      setUpdatingReview(null);
+    }
+  };
+
+  const hasFilters = startDate || endDate || repFilter || shopFilter || search || reviewFilter !== 'all';
 
   return (
     <div className="space-y-6">
@@ -198,6 +237,15 @@ export default function AdminCollections() {
             <input type="text" placeholder="Shop, rep, order ID…" value={search} onChange={e => setSearch(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-300" />
           </div>
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Review</label>
+            <select value={reviewFilter} onChange={e => setReviewFilter(e.target.value as typeof reviewFilter)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300">
+              <option value="all">All</option>
+              <option value="unreviewed">Needs review</option>
+              <option value="reviewed">Reviewed</option>
+            </select>
+          </div>
           {hasFilters && (
             <button onClick={clearFilters}
               className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
@@ -208,7 +256,7 @@ export default function AdminCollections() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
           <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-1">Total Collected</p>
           <p className="text-xl font-bold text-emerald-800">{stats.total.toFixed(2)} LKR</p>
@@ -224,6 +272,10 @@ export default function AdminCollections() {
         <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
           <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Shops</p>
           <p className="text-xl font-bold text-amber-800">{stats.uniqueShops}</p>
+        </div>
+        <div className="bg-rose-50 border border-rose-100 rounded-xl p-4">
+          <p className="text-xs font-semibold text-rose-600 uppercase tracking-wide mb-1">Needs Review</p>
+          <p className="text-xl font-bold text-rose-800">{stats.unreviewed}</p>
         </div>
       </div>
 
@@ -312,11 +364,12 @@ export default function AdminCollections() {
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Order Total</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Collected</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Notes</th>
+                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Admin Review</th>
                 </tr>
               </thead>
               <tbody>
                 {paginated.map(c => (
-                  <tr key={c.payment_id} className="border-b border-gray-100 last:border-0 hover:bg-emerald-50/20 transition-colors">
+                  <tr key={c.payment_id} className={`border-b border-gray-100 last:border-0 transition-colors ${c.reviewed_at ? 'bg-emerald-50/30 hover:bg-emerald-50/60' : 'hover:bg-amber-50/30'}`}>
                     <td className="py-3.5 px-5 text-sm text-gray-500 whitespace-nowrap">
                       {new Date(c.payment_date).toLocaleDateString()}{' '}
                       <span className="text-gray-400 text-xs">
@@ -345,6 +398,28 @@ export default function AdminCollections() {
                     </td>
                     <td className="py-3.5 px-5 text-sm text-gray-500 max-w-[180px] truncate">
                       {c.payment_notes || <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="py-3.5 px-5 whitespace-nowrap">
+                      <button
+                        onClick={() => handleReviewToggle(c)}
+                        disabled={updatingReview === c.payment_id}
+                        title={c.reviewed_at
+                          ? `Reviewed${c.reviewed_by_admin ? ` by ${[c.reviewed_by_admin.first_name, c.reviewed_by_admin.last_name].filter(Boolean).join(' ') || c.reviewed_by_admin.email}` : ''} on ${new Date(c.reviewed_at).toLocaleString()}. Click to mark as unreviewed.`
+                          : 'Mark this collection as seen and reviewed'}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                          c.reviewed_at
+                            ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200'
+                            : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'
+                        }`}
+                      >
+                        {updatingReview === c.payment_id ? (
+                          'Saving…'
+                        ) : c.reviewed_at ? (
+                          <><span aria-hidden="true">✓</span> Reviewed</>
+                        ) : (
+                          'Mark Reviewed'
+                        )}
+                      </button>
                     </td>
                   </tr>
                 ))}

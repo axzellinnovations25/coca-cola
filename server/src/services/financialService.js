@@ -26,6 +26,7 @@ const ORDER_FINANCIALS_CTES = `
       o.shop_id,
       o.sales_rep_id,
       o.status,
+      COALESCE(o.request_fingerprint LIKE 'legacy:%', FALSE) AS is_legacy,
       o.total::numeric AS gross_total,
       COALESCE(pt.collected, 0) AS collected,
       COALESCE(odct.credit, 0) AS out_of_date_credit,
@@ -63,12 +64,23 @@ async function getShopCreditSummary(shopId, executor, excludedPendingOrderId = n
       s.max_bill_amount::numeric AS credit_limit,
       s.max_active_bills,
       COALESCE(SUM(of.outstanding) FILTER (WHERE of.status = 'approved'), 0) AS collectible_outstanding,
+      COALESCE(SUM(of.outstanding) FILTER (
+        WHERE of.status = 'approved' AND NOT of.is_legacy
+      ), 0) AS credit_outstanding,
+      COALESCE(SUM(of.outstanding) FILTER (
+        WHERE of.status = 'approved' AND of.is_legacy
+      ), 0) AS legacy_outstanding,
       COALESCE(SUM(of.gross_total) FILTER (
-        WHERE of.status = 'pending' AND ($2::text IS NULL OR of.order_id <> $2::text)
+        WHERE of.status = 'pending'
+          AND NOT of.is_legacy
+          AND ($2::text IS NULL OR of.order_id <> $2::text)
       ), 0) AS pending_order_value,
       COUNT(*) FILTER (
-        WHERE (of.status = 'approved' AND of.outstanding > 0)
-           OR (of.status = 'pending' AND ($2::text IS NULL OR of.order_id <> $2::text))
+        WHERE NOT of.is_legacy
+          AND (
+            (of.status = 'approved' AND of.outstanding > 0)
+            OR (of.status = 'pending' AND ($2::text IS NULL OR of.order_id <> $2::text))
+          )
       ) AS active_bills
     FROM shops s
     LEFT JOIN order_financials of ON of.shop_id = s.id
@@ -79,13 +91,17 @@ async function getShopCreditSummary(shopId, executor, excludedPendingOrderId = n
   if (!result.rows.length) return null;
   const row = result.rows[0];
   const collectibleOutstanding = Number(row.collectible_outstanding || 0);
+  const creditOutstanding = Number(row.credit_outstanding || 0);
+  const legacyOutstanding = Number(row.legacy_outstanding || 0);
   const pendingOrderValue = Number(row.pending_order_value || 0);
   const creditLimit = Number(row.credit_limit || 0);
-  const creditUsed = collectibleOutstanding + pendingOrderValue;
+  const creditUsed = creditOutstanding + pendingOrderValue;
   return {
     credit_limit: creditLimit,
     max_active_bills: Number(row.max_active_bills || 0),
     collectible_outstanding: collectibleOutstanding,
+    credit_outstanding: creditOutstanding,
+    legacy_outstanding: legacyOutstanding,
     pending_order_value: pendingOrderValue,
     credit_used: creditUsed,
     available_credit: Math.max(creditLimit - creditUsed, 0),

@@ -276,17 +276,26 @@ async function listAssignedShops(sales_rep_id) {
     shop_financials AS (
       SELECT shop_id,
         COALESCE(SUM(outstanding) FILTER (WHERE status = 'approved'), 0) AS collectible_outstanding,
-        COALESCE(SUM(gross_total) FILTER (WHERE status = 'pending'), 0) AS pending_order_value,
-        COUNT(*) FILTER (WHERE (status = 'approved' AND outstanding > 0) OR status = 'pending') AS active_bills
+        COALESCE(SUM(outstanding) FILTER (WHERE status = 'approved' AND NOT is_legacy), 0) AS credit_outstanding,
+        COALESCE(SUM(outstanding) FILTER (WHERE status = 'approved' AND is_legacy), 0) AS legacy_outstanding,
+        COALESCE(SUM(gross_total) FILTER (WHERE status = 'pending' AND NOT is_legacy), 0) AS pending_order_value,
+        COUNT(*) FILTER (
+          WHERE NOT is_legacy AND ((status = 'approved' AND outstanding > 0) OR status = 'pending')
+        ) AS active_bills
       FROM order_financials
       GROUP BY shop_id
     )
     SELECT s.*,
       COALESCE(sf.collectible_outstanding, 0) AS current_outstanding,
-      COALESCE(sf.collectible_outstanding, 0) AS collectible_outstanding,
+      -- Older APKs calculate available credit locally from this field. Keep the
+      -- full balance in current_outstanding, but expose only credit-limit-bearing
+      -- (non-legacy) invoices here so those APKs do not count legacy bills.
+      COALESCE(sf.credit_outstanding, 0) AS collectible_outstanding,
+      COALESCE(sf.credit_outstanding, 0) AS credit_outstanding,
+      COALESCE(sf.legacy_outstanding, 0) AS legacy_outstanding,
       COALESCE(sf.pending_order_value, 0) AS pending_order_value,
-      COALESCE(sf.collectible_outstanding, 0) + COALESCE(sf.pending_order_value, 0) AS credit_used,
-      GREATEST(s.max_bill_amount::numeric - COALESCE(sf.collectible_outstanding, 0) - COALESCE(sf.pending_order_value, 0), 0) AS available_credit,
+      COALESCE(sf.credit_outstanding, 0) + COALESCE(sf.pending_order_value, 0) AS credit_used,
+      GREATEST(s.max_bill_amount::numeric - COALESCE(sf.credit_outstanding, 0) - COALESCE(sf.pending_order_value, 0), 0) AS available_credit,
       COALESCE(sf.active_bills, 0) AS active_bills
     FROM shops s
     LEFT JOIN shop_financials sf ON sf.shop_id = s.id
@@ -2584,6 +2593,8 @@ async function getShopDetails(shop_id) {
     max_active_bills: Number(shop.max_active_bills), // Ensure this is a number
     current_outstanding: currentOutstanding,
     collectible_outstanding: currentOutstanding,
+    credit_outstanding: Number(creditSummary?.credit_outstanding || 0),
+    legacy_outstanding: Number(creditSummary?.legacy_outstanding || 0),
     pending_order_value: Number(creditSummary?.pending_order_value || 0),
     credit_used: Number(creditSummary?.credit_used || 0),
     active_bills: Number(creditSummary?.active_bills || 0),
@@ -2850,6 +2861,8 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
       p.amount,
       p.notes         AS payment_notes,
       p.created_at    AS payment_date,
+      p.reviewed_at,
+      p.reviewed_by,
       o.id            AS order_id,
       o.total         AS order_total,
       s.id            AS shop_id,
@@ -2858,11 +2871,15 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
       u.id            AS sales_rep_id,
       u.first_name    AS sales_rep_first_name,
       u.last_name     AS sales_rep_last_name,
-      u.email         AS sales_rep_email
+      u.email         AS sales_rep_email,
+      reviewer.first_name AS reviewer_first_name,
+      reviewer.last_name  AS reviewer_last_name,
+      reviewer.email      AS reviewer_email
     FROM payments p
     JOIN orders  o ON p.order_id    = o.id
     JOIN shops   s ON o.shop_id     = s.id
     JOIN users   u ON p.sales_rep_id = u.id
+    LEFT JOIN users reviewer ON p.reviewed_by = reviewer.id
     ${where}
     ORDER BY p.created_at DESC
     LIMIT 500
@@ -2873,6 +2890,14 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
     payment_amount: Number(row.amount),
     payment_notes:  row.payment_notes,
     payment_date:   row.payment_date,
+    reviewed_at:    row.reviewed_at,
+    reviewed_by:    row.reviewed_by,
+    reviewed_by_admin: row.reviewed_by ? {
+      id: row.reviewed_by,
+      first_name: row.reviewer_first_name,
+      last_name: row.reviewer_last_name,
+      email: row.reviewer_email,
+    } : null,
     order_id:       row.order_id,
     order_total:    Number(row.order_total),
     shop: {
@@ -2889,6 +2914,47 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
   }));
 }
 
+async function setCollectionReviewed({ payment_id, admin_id, reviewed }) {
+  if (!payment_id) throw new Error('Collection ID is required');
+  if (!admin_id) throw new Error('Admin not found');
+  if (typeof reviewed !== 'boolean') throw new Error('Reviewed must be true or false');
+
+  const result = await pool.query(`
+    WITH updated AS (
+      UPDATE payments
+      SET reviewed_at = CASE WHEN $2::boolean THEN NOW() ELSE NULL END,
+          reviewed_by = CASE WHEN $2::boolean THEN $3::text ELSE NULL END
+      WHERE id = $1
+      RETURNING id, reviewed_at, reviewed_by
+    )
+    SELECT updated.*,
+      reviewer.first_name AS reviewer_first_name,
+      reviewer.last_name AS reviewer_last_name,
+      reviewer.email AS reviewer_email
+    FROM updated
+    LEFT JOIN users reviewer ON reviewer.id = updated.reviewed_by
+  `, [payment_id, reviewed, admin_id]);
+
+  if (result.rows.length === 0) {
+    const error = new Error('Collection not found');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const row = result.rows[0];
+  return {
+    payment_id: row.id,
+    reviewed_at: row.reviewed_at,
+    reviewed_by: row.reviewed_by,
+    reviewed_by_admin: row.reviewed_by ? {
+      id: row.reviewed_by,
+      first_name: row.reviewer_first_name,
+      last_name: row.reviewer_last_name,
+      email: row.reviewer_email,
+    } : null,
+  };
+}
+
 module.exports.getRepresentativeCollections = getRepresentativeCollections;
 module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats;
 module.exports.getShopDetails = getShopDetails;
@@ -2897,6 +2963,7 @@ module.exports.listExpiryLogs = listExpiryLogs;
 module.exports.recordPurchase = recordPurchase;
 module.exports.listPurchaseLogs = listPurchaseLogs;
 module.exports.getAdminCollections = getAdminCollections;
+module.exports.setCollectionReviewed = setCollectionReviewed;
 module.exports.recordPaymentAsAdmin = recordPaymentAsAdmin;
 module.exports.createOutOfDate = createOutOfDate;
 module.exports.getOrderOutOfDateHistory = getOrderOutOfDateHistory;

@@ -968,3 +968,18 @@ exports.getAdminCollections = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+exports.setCollectionReviewed = async (req, res) => {
+  try {
+    const { payment_id } = req.params;
+    const admin_id = req.user && req.user.id;
+    const reviewed = req.body && req.body.reviewed;
+    const collection = await productService.setCollectionReviewed({ payment_id, admin_id, reviewed });
+    res.json({
+      message: reviewed ? 'Collection marked as reviewed' : 'Collection marked as unreviewed',
+      collection,
+    });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+};

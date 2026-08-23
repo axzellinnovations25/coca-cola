@@ -475,7 +475,10 @@ export default function CreateOrderScreen() {
       const normalizedShops = (shopData.shops || []).map((shop) => {
         const collectibleOutstanding = Number(shop.collectible_outstanding ?? shop.current_outstanding) || 0;
         const pendingOrderValue = pendingByShop.get(String(shop.id)) ?? Number(shop.pending_order_value || 0);
-        const creditUsed = collectibleOutstanding + pendingOrderValue;
+        const serverCreditUsed = Number(shop.credit_used);
+        const creditUsed = Number.isFinite(serverCreditUsed)
+          ? serverCreditUsed - Number(shop.pending_order_value || 0) + pendingOrderValue
+          : collectibleOutstanding + pendingOrderValue;
         return {
           ...shop,
           collectible_outstanding: collectibleOutstanding,
@@ -1130,7 +1133,7 @@ export default function CreateOrderScreen() {
         if (shop.id !== selectedShop.id) return shop;
         const collectibleOutstanding = Number(shop.collectible_outstanding ?? shop.current_outstanding) || 0;
         const pendingOrderValue = (Number(shop.pending_order_value) || 0) + createdOrderTotal;
-        const creditUsed = collectibleOutstanding + pendingOrderValue;
+        const creditUsed = Number(shop.credit_used || 0) + createdOrderTotal;
         return {
           ...shop,
           collectible_outstanding: collectibleOutstanding,
@@ -1745,7 +1748,7 @@ export default function CreateOrderScreen() {
 
     if (flowStep === 'shop' && selectedShop) {
       const creditLimit = Number(selectedShop.max_bill_amount) || 0;
-      const outstanding = Number(selectedShop.collectible_outstanding ?? selectedShop.current_outstanding) || 0;
+      const outstanding = Number(selectedShop.current_outstanding ?? selectedShop.collectible_outstanding) || 0;
       const pendingOrderValue = Number(selectedShop.pending_order_value) || 0;
       const creditUsed = Number(selectedShop.credit_used) || 0;
       const creditUsage = creditLimit > 0 ? Math.min(1, creditUsed / creditLimit) : 0;

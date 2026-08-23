@@ -126,5 +126,6 @@ router.get('/reports/repwise-shop-limits.pdf', authenticateJWT, requireAdminOrSu
 
 // Admin collections (Admin/Superadmin only)
 router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);
+router.patch('/collections/admin/:payment_id/reviewed', authenticateJWT, requireAdminOrSuperadmin, productController.setCollectionReviewed);
 
 module.exports = router; 
