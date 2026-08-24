@@ -308,7 +308,14 @@ async function listAssignedShops(sales_rep_id) {
     WHERE ($1::text IS NULL OR s.sales_rep_id = $1)
     ORDER BY s.created_at DESC
   `, [sales_rep_id]);
-  return result.rows;
+  // Legacy APK search calls toLowerCase() on these fields without null checks.
+  // Preserve the original API contract even when newer shop records are incomplete.
+  return result.rows.map((shop) => ({
+    ...shop,
+    name: String(shop.name || ''),
+    address: String(shop.address || ''),
+    phone: String(shop.phone || ''),
+  }));
 }
 
 async function getAdminOrderEntryOptions() {
@@ -1019,7 +1026,11 @@ async function listOrders(sales_rep_id) {
     WHERE o.sales_rep_id = $1
     ORDER BY o.created_at DESC
   `, [sales_rep_id]);
-  return result.rows;
+  return result.rows.map((order) => ({
+    ...order,
+    shop_name: String(order.shop_name || ''),
+    status: String(order.status || ''),
+  }));
 }
 
 // New function for admin to list all orders
@@ -2594,9 +2605,9 @@ async function getRepresentativeCollections(sales_rep_id) {
       order_status: row.order_status,
       shop: {
         id: row.shop_id,
-        name: row.shop_name,
-        address: row.shop_address,
-        phone: row.shop_phone
+        name: String(row.shop_name || ''),
+        address: String(row.shop_address || ''),
+        phone: String(row.shop_phone || '')
       },
       sales_rep: {
         first_name: row.sales_rep_first_name,
