@@ -7,6 +7,8 @@ const {
   getShopCreditSummary,
 } = require('./financialService');
 
+const LEGACY_AMOUNT_RETURN_ITEM_PREFIX = 'legacy-return-amount:';
+
 async function logProductAction({ product_id, user_id, action, details, client }) {
   const logId = randomUUID();
   const executor = client || pool;
@@ -1274,7 +1276,8 @@ async function billsForRepresentative(sales_rep_id) {
   // Get all approved orders for these shops
   const ordersRes = await pool.query(`
     WITH ${ORDER_FINANCIALS_CTES}
-    SELECT o.id, o.shop_id, o.created_at, o.total,
+    SELECT o.id, o.shop_id, o.created_at, o.total, of.is_legacy,
+      NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '') AS invoice_number,
       of.collected, of.out_of_date_credit, of.return_credit, of.approved_credit,
       of.net_collectible, of.outstanding, of.customer_credit,
       COALESCE((
@@ -1319,7 +1322,10 @@ async function billsForRepresentative(sales_rep_id) {
       approved_credit: Number(order.approved_credit || 0),
       net_due: netDue,
       outstanding,
-      refund_due
+      refund_due,
+      source: order.is_legacy ? 'legacy' : 'current',
+      invoice_number: order.invoice_number || null,
+      return_mode: order.is_legacy ? 'amount' : 'items'
     });
     shopMap[order.shop_id].total_outstanding += outstanding;
     shopMap[order.shop_id].total_refund_due += refund_due;
@@ -1587,7 +1593,122 @@ async function getOrderOutOfDateHistory(order_id) {
   }));
 }
 
-async function recordReturn({ order_id, sales_rep_id, items, notes, idempotency_key }) {
+async function recordLegacyAmountReturn({ order_id, sales_rep_id, amount, notes, idempotency_key }) {
+  const numericAmount = Math.round(Number(amount) * 100) / 100;
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new Error('Return amount must be greater than zero');
+  }
+  const effectiveIdempotencyKey = idempotency_key || `legacy-apk-${randomUUID()}`;
+  if (typeof effectiveIdempotencyKey !== 'string' || effectiveIdempotencyKey.length > 200) {
+    throw new Error('A valid return idempotency key is required');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const duplicateRes = await client.query(
+      `SELECT r.id, r.order_id, r.total_credit, r.status, cn.id AS credit_note_id
+       FROM returns r
+       LEFT JOIN credit_notes cn ON cn.return_id = r.id
+       WHERE r.sales_rep_id = $1 AND r.idempotency_key = $2`,
+      [sales_rep_id, effectiveIdempotencyKey]
+    );
+    if (duplicateRes.rows.length) {
+      await client.query('COMMIT');
+      return { ...duplicateRes.rows[0], duplicate: true };
+    }
+
+    const orderRes = await client.query(
+      `SELECT id, shop_id, sales_rep_id, status, total,
+         COALESCE(request_fingerprint LIKE 'legacy:%', FALSE) AS is_legacy
+       FROM orders
+       WHERE id = $1
+       FOR UPDATE`,
+      [order_id]
+    );
+    if (orderRes.rows.length === 0) throw new Error('Order not found');
+    const order = orderRes.rows[0];
+    if (order.status !== 'approved') throw new Error('Returns are allowed only for approved orders');
+    if (String(order.sales_rep_id) !== String(sales_rep_id)) {
+      throw new Error('Access denied - Order does not belong to you');
+    }
+    if (!order.is_legacy) {
+      throw new Error('Amount-only returns are allowed only for legacy bills');
+    }
+
+    const financials = await getOrderFinancials(order_id, client);
+    const outstanding = Number(financials?.outstanding || 0);
+    if (outstanding <= 0) throw new Error('No outstanding balance remains on this legacy bill');
+    if (numericAmount > outstanding) {
+      throw new Error(`Return amount exceeds the outstanding balance (${outstanding.toFixed(2)} LKR)`);
+    }
+
+    const returnId = randomUUID();
+    const creditNoteId = randomUUID();
+    await client.query(
+      `INSERT INTO returns
+       (id, order_id, shop_id, sales_rep_id, status, notes, idempotency_key, total_credit, created_at)
+       VALUES ($1, $2, $3, $4, 'confirmed', $5, $6, $7, NOW())`,
+      [returnId, order_id, order.shop_id, sales_rep_id, notes || null, effectiveIdempotencyKey, numericAmount]
+    );
+    await client.query(
+      `INSERT INTO credit_notes (id, order_id, return_id, amount, status, created_at)
+       VALUES ($1, $2, $3, $4, 'approved', NOW())`,
+      [creditNoteId, order_id, returnId, numericAmount]
+    );
+
+    await client.query('COMMIT');
+
+    await logOrderAction({
+      order_id,
+      sales_rep_id,
+      action: 'return',
+      details: {
+        return_id: returnId,
+        credit_note_id: creditNoteId,
+        return_mode: 'amount',
+        original_invoice_total: Number(order.total),
+        return_credit: numericAmount,
+        notes: notes || null
+      }
+    });
+
+    const updatedFinancials = await getOrderFinancials(order_id, pool);
+    return {
+      id: returnId,
+      order_id,
+      credit_note_id: creditNoteId,
+      return_credit: numericAmount,
+      invoice_total: Number(order.total),
+      net_due: Number(updatedFinancials.net_collectible),
+      outstanding: Number(updatedFinancials.outstanding),
+      customer_credit: Number(updatedFinancials.customer_credit),
+      status: 'confirmed',
+      duplicate: false,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function recordReturn({ order_id, sales_rep_id, items, amount, notes, idempotency_key, return_mode }) {
+  if (return_mode === 'amount') {
+    return recordLegacyAmountReturn({ order_id, sales_rep_id, amount, notes, idempotency_key });
+  }
+  const legacyAmountItemId = `${LEGACY_AMOUNT_RETURN_ITEM_PREFIX}${order_id}`;
+  if (Array.isArray(items) && items.length === 1 && items[0]?.order_item_id === legacyAmountItemId) {
+    return recordLegacyAmountReturn({
+      order_id,
+      sales_rep_id,
+      amount: items[0].quantity,
+      notes,
+      idempotency_key,
+    });
+  }
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('Return items are required');
   }
@@ -2065,6 +2186,7 @@ async function getOrderDetails(order_id) {
   // Get order details with items
   const orderRes = await pool.query(`
     SELECT o.id, o.shop_id, o.sales_rep_id, o.total, o.status, o.notes, o.created_at,
+           COALESCE(o.request_fingerprint LIKE 'legacy:%', FALSE) AS is_legacy,
            s.name as shop_name, s.address as shop_address, s.phone as shop_phone,
            u.first_name as sales_rep_first_name, u.last_name as sales_rep_last_name, u.email as sales_rep_email
     FROM orders o
@@ -2167,6 +2289,7 @@ async function getOrderDetails(order_id) {
     net_due: netDue,
     outstanding,
     refund_due,
+    is_legacy: Boolean(order.is_legacy),
     resolved_customer_credit: Number(financials?.resolved_customer_credit || 0),
     shop: {
       name: order.shop_name,
@@ -2826,6 +2949,7 @@ module.exports.deleteOrderAsAdmin = deleteOrderAsAdmin;
 module.exports.getPendingOrdersCount = getPendingOrdersCount;
 module.exports.getPendingOrders = getPendingOrders; 
 module.exports.getOrderDetails = getOrderDetails; 
+module.exports.LEGACY_AMOUNT_RETURN_ITEM_PREFIX = LEGACY_AMOUNT_RETURN_ITEM_PREFIX;
 module.exports.getOrderById = getOrderById;
 module.exports.getOrderPayments = getOrderPayments;
 module.exports.logSalesQuantityAction = logSalesQuantityAction;

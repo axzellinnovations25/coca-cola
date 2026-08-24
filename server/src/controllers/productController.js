@@ -258,13 +258,15 @@ exports.recordReturn = async (req, res) => {
   try {
     const order_id = req.params.id;
     const sales_rep_id = req.user && req.user.id;
-    const { items, notes, idempotency_key } = req.body;
+    const { items, amount, notes, idempotency_key, return_mode } = req.body;
     const result = await shopService.recordReturn({
       order_id,
       sales_rep_id,
       items,
+      amount,
       notes,
       idempotency_key,
+      return_mode,
     });
     
     res.json({ 
@@ -426,6 +428,20 @@ exports.getOrderDetailsForSalesRep = async (req, res) => {
     const order = await shopService.getOrderById(order_id);
     if (!order || order.sales_rep_id !== sales_rep_id) {
       return res.status(403).json({ error: 'Access denied - Order does not belong to you' });
+    }
+
+    if (orderDetails.is_legacy && orderDetails.items.length === 0 && orderDetails.outstanding >= 1) {
+      const wholeAmount = Math.floor(orderDetails.outstanding);
+      orderDetails.items = [{
+        order_item_id: `${shopService.LEGACY_AMOUNT_RETURN_ITEM_PREFIX}${order_id}`,
+        product_id: 'legacy-return-amount',
+        name: 'Return Amount (LKR)',
+        product_name: 'Return Amount (LKR)',
+        quantity: wholeAmount,
+        remaining_qty: wholeAmount,
+        unit_price: 1,
+        total: wholeAmount,
+      }];
     }
     
     res.json({ order: orderDetails });
