@@ -19,6 +19,13 @@ function requireSalesRep(req, res, next) {
   next();
 }
 
+function requireSalesRepOrAdmin(req, res, next) {
+  if (!req.user || !['representative', 'admin', 'superadmin'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  next();
+}
+
 // POST /api/:client/users (protected)
 router.post('/users', authenticateJWT, requireAdminOrSuperadmin, userController.createUser);
 // GET /api/:client/users (protected)
@@ -80,6 +87,8 @@ router.get('/orders/pending', authenticateJWT, requireSalesRep, productControlle
 router.put('/orders/:order_id', authenticateJWT, requireSalesRep, productController.updatePendingOrderForSalesRep);
 
 // Admin order endpoints (must come before sales rep specific routes)
+router.get('/orders/admin/entry-options', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminOrderEntryOptions);
+router.post('/orders/admin', authenticateJWT, requireAdminOrSuperadmin, productController.createOrderAsAdmin);
 router.get('/orders/all', authenticateJWT, requireAdminOrSuperadmin, productController.listAllOrders);
 router.get('/orders/:order_id', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderDetails);
 router.get('/orders/:order_id/payments', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderPayments);
@@ -94,9 +103,9 @@ router.get('/orders/:order_id/out-of-date', authenticateJWT, requireAdminOrSuper
 router.get('/orders/:order_id/details', authenticateJWT, requireSalesRep, productController.getOrderDetailsForSalesRep);
 
 // Messaging routes for order notifications
-router.post('/orders/:order_id/send-sms', authenticateJWT, requireSalesRep, productController.sendOrderSMS);
-router.post('/orders/:order_id/send-whatsapp', authenticateJWT, requireSalesRep, productController.sendOrderWhatsApp);
-router.post('/orders/:order_id/send-notification', authenticateJWT, requireSalesRep, productController.sendOrderNotification);
+router.post('/orders/:order_id/send-sms', authenticateJWT, requireSalesRepOrAdmin, productController.sendOrderSMS);
+router.post('/orders/:order_id/send-whatsapp', authenticateJWT, requireSalesRepOrAdmin, productController.sendOrderWhatsApp);
+router.post('/orders/:order_id/send-notification', authenticateJWT, requireSalesRepOrAdmin, productController.sendOrderNotification);
 
 // Messaging routes for order approval notifications (Admin only)
 router.post('/orders/:order_id/approval/send-sms', authenticateJWT, requireAdminOrSuperadmin, productController.sendOrderApprovalSMS);
@@ -126,6 +135,7 @@ router.get('/reports/repwise-shop-limits.pdf', authenticateJWT, requireAdminOrSu
 
 // Admin collections (Admin/Superadmin only)
 router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);
+router.patch('/collections/admin/:payment_id', authenticateJWT, requireAdminOrSuperadmin, productController.updateCollectionAsAdmin);
 router.patch('/collections/admin/:payment_id/reviewed', authenticateJWT, requireAdminOrSuperadmin, productController.setCollectionReviewed);
 
 module.exports = router; 

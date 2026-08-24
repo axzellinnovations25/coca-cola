@@ -15,6 +15,7 @@ import SalesQuantityLogTable from "./admin/SalesQuantityLogTable";
 import PurchaseManagement from "./admin/PurchaseManagement";
 import ExpiryManagement from "./admin/ExpiryManagement";
 import AdminCollections from "./admin/AdminCollections";
+import AdminSalesEntry from "./admin/AdminSalesEntry";
 
 interface SidebarChild {
   label: string;
@@ -29,6 +30,24 @@ interface SidebarItem {
 }
 
 const sidebarItems: SidebarItem[] = [
+  {
+    label: "Sales Entry",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M12 6v12m6-6H6m13 9H5a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v14a2 2 0 01-2 2z"
+        />
+      </svg>
+    ),
+  },
   {
     label: "Order Management",
     icon: (
@@ -610,6 +629,8 @@ export default function AdminDashboard({
         {/* Section Content */}
         {currentSection === "Product Management" ? (
           <ProductManagement />
+        ) : currentSection === "Sales Entry" ? (
+          <AdminSalesEntry onOrderPlaced={() => handleSectionClick("Order Management")} />
         ) : currentSection === "Purchase" ? (
           <PurchaseManagement userId={user.id} />
         ) : currentSection === "Expiry Management" ? (

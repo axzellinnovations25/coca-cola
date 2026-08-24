@@ -38,6 +38,13 @@ interface Collection {
   };
 }
 
+function toLocalDateTimeInput(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
 export default function AdminCollections() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [reps, setReps] = useState<SalesRep[]>([]);
@@ -53,6 +60,12 @@ export default function AdminCollections() {
   const [search, setSearch] = useState('');
   const [reviewFilter, setReviewFilter] = useState<'all' | 'unreviewed' | 'reviewed'>('all');
   const [updatingReview, setUpdatingReview] = useState<string | null>(null);
+  const [editingCollection, setEditingCollection] = useState<Collection | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchCollections = useCallback(async () => {
     setLoading(true);
@@ -179,6 +192,62 @@ export default function AdminCollections() {
       setError(err.message || 'Failed to update the collection review marker.');
     } finally {
       setUpdatingReview(null);
+    }
+  };
+
+  const openEdit = (collection: Collection) => {
+    setEditingCollection(collection);
+    setEditAmount(String(collection.payment_amount));
+    setEditNotes(collection.payment_notes || '');
+    setEditDate(toLocalDateTimeInput(collection.payment_date));
+    setEditError('');
+  };
+
+  const closeEdit = () => {
+    if (savingEdit) return;
+    setEditingCollection(null);
+    setEditError('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingCollection) return;
+    const amount = Number(editAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setEditError('Enter a collection amount greater than zero.');
+      return;
+    }
+    const parsedDate = new Date(editDate);
+    if (!editDate || Number.isNaN(parsedDate.getTime())) {
+      setEditError('Enter a valid collection date and time.');
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      const response = await apiFetch(`/api/marudham/collections/admin/${editingCollection.payment_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          amount,
+          notes: editNotes,
+          payment_date: parsedDate.toISOString(),
+        }),
+      });
+      const updated = response.collection;
+      setCollections(current => current.map(item => item.payment_id === editingCollection.payment_id
+        ? {
+            ...item,
+            payment_amount: Number(updated.payment_amount),
+            payment_notes: updated.payment_notes || null,
+            payment_date: updated.payment_date,
+          }
+        : item));
+      clearCache('/api/marudham/collections/admin');
+      setEditingCollection(null);
+    } catch (err: any) {
+      setEditError(err.message || 'Failed to update the collection.');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -365,6 +434,7 @@ export default function AdminCollections() {
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Collected</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Notes</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Admin Review</th>
+                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -419,6 +489,17 @@ export default function AdminCollections() {
                         ) : (
                           'Mark Reviewed'
                         )}
+                      </button>
+                    </td>
+                    <td className="py-3.5 px-5 whitespace-nowrap">
+                      <button
+                        onClick={() => openEdit(c)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 11l6.586-6.586a2 2 0 112.828 2.828L11.828 13.828a2 2 0 01-.828.486L8 15l.686-3a2 2 0 01.314-.686zM5 19h14" />
+                        </svg>
+                        Edit
                       </button>
                     </td>
                   </tr>
@@ -483,6 +564,92 @@ export default function AdminCollections() {
           </div>
         )}
       </div>
+
+      {editingCollection && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/45 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-600 mb-1">Edit Collection</p>
+                <h2 className="text-lg font-bold text-gray-900">{editingCollection.shop.name}</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Order #{editingCollection.order_id.slice(0, 8)} - {editingCollection.sales_rep.first_name} {editingCollection.sales_rep.last_name}
+                </p>
+              </div>
+              <button
+                onClick={closeEdit}
+                disabled={savingEdit}
+                className="w-9 h-9 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                aria-label="Close edit collection"
+              >
+                <svg className="w-5 h-5 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {editError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {editError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Amount (LKR)</label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={editAmount}
+                  onChange={event => setEditAmount(event.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <p className="mt-1.5 text-xs text-gray-400">Original value: {editingCollection.payment_amount.toFixed(2)} LKR</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Collection Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  value={editDate}
+                  onChange={event => setEditDate(event.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Notes</label>
+                <textarea
+                  rows={4}
+                  maxLength={1000}
+                  value={editNotes}
+                  onChange={event => setEditNotes(event.target.value)}
+                  placeholder="Optional collection notes"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 rounded-lg text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-end gap-3">
+              <button
+                onClick={closeEdit}
+                disabled={savingEdit}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={savingEdit}
+                className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

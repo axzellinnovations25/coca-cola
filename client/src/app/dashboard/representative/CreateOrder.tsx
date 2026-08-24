@@ -14,6 +14,16 @@ interface Shop {
   credit_used: number;
   available_credit: number;
   active_bills: number;
+  sales_rep_id?: string | null;
+  sales_rep_first_name?: string | null;
+  sales_rep_last_name?: string | null;
+}
+
+interface SalesRepresentative {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
 }
 
 interface Product {
@@ -35,11 +45,14 @@ interface OrderItem {
 
 interface CreateOrderProps {
   onOrderPlaced?: () => void;
+  adminMode?: boolean;
 }
 
-export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
+export default function CreateOrder({ onOrderPlaced, adminMode = false }: CreateOrderProps) {
   const [shops, setShops] = useState<Shop[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [representatives, setRepresentatives] = useState<SalesRepresentative[]>([]);
+  const [selectedRepresentativeId, setSelectedRepresentativeId] = useState('');
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const defaultSelectedQuantity = 0;
@@ -68,6 +81,19 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
 
   useEffect(() => {
     setLoading(true);
+    if (adminMode) {
+      apiFetch('/api/marudham/orders/admin/entry-options')
+        .then(data => {
+          setShops(data.shops || []);
+          setFilteredShops(data.shops || []);
+          setProducts(data.products || []);
+          setRepresentatives(data.representatives || []);
+        })
+        .catch(err => setError(err.message))
+        .finally(() => setLoading(false));
+      return;
+    }
+
     Promise.all([
       apiFetch('/api/marudham/shops/assigned'),
       apiFetch('/api/marudham/order-products'),
@@ -79,7 +105,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [adminMode]);
 
   // Ensure quantity always starts at the default, even after fast refreshes
   useLayoutEffect(() => {
@@ -591,10 +617,11 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
     
     try {
       // Create the order
-      const res = await apiFetch('/api/marudham/orders', {
+      const res = await apiFetch(adminMode ? '/api/marudham/orders/admin' : '/api/marudham/orders', {
         method: 'POST',
         body: JSON.stringify({
           shop_id: orderToConfirm.shop_id,
+          ...(adminMode ? { sales_rep_id: orderToConfirm.sales_rep_id } : {}),
           notes: orderToConfirm.notes,
           items: orderToConfirm.items,
         }),
@@ -627,11 +654,12 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShop || orderItems.length === 0) return;
+    if (!selectedShop || orderItems.length === 0 || (adminMode && !selectedRepresentativeId)) return;
     
     // Prepare order data for confirmation
     const orderData = {
       shop_id: selectedShop.id,
+      ...(adminMode ? { sales_rep_id: selectedRepresentativeId } : {}),
       notes,
       items: orderItems.flatMap(i => [
         ...(i.quantity > 0 ? [{ product_id: i.product_id, unit_price: i.unit_price, quantity: i.quantity }] : []),
@@ -679,8 +707,10 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
 
   return (
     <div>
-      <h2 className="text-lg font-semibold mb-2 text-gray-900">Create Order</h2>
-      <p className="text-gray-500 mb-4 text-sm">Create a new order for your assigned shop</p>
+      <h2 className="text-lg font-semibold mb-2 text-gray-900">{adminMode ? 'Sales Entry' : 'Create Order'}</h2>
+      <p className="text-gray-500 mb-4 text-sm">
+        {adminMode ? 'Create an order for any shop on behalf of a sales representative' : 'Create a new order for your assigned shop'}
+      </p>
 
       {loading ? (
         <div className="text-gray-500 text-center py-8 font-medium">Loading shops and products...</div>
@@ -689,6 +719,25 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
       ) : (
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
+            {adminMode && (
+              <div>
+                <label className="block text-gray-700 font-medium mb-2 text-sm">Sales Representative</label>
+                <select
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-300 text-sm text-gray-900 bg-white"
+                  value={selectedRepresentativeId}
+                  onChange={event => setSelectedRepresentativeId(event.target.value)}
+                  required
+                >
+                  <option value="">Select a sales representative...</option>
+                  {representatives.map(representative => (
+                    <option key={representative.id} value={representative.id}>
+                      {representative.first_name} {representative.last_name} ({representative.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Shop Selection */}
             <div>
               <label className="block text-gray-700 font-medium mb-2 text-sm">Search Shop</label>
@@ -725,6 +774,13 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
                         {shop.phone && (
                           <div className="text-gray-500 text-xs">{shop.phone}</div>
                         )}
+                        {adminMode && (
+                          <div className="text-purple-600 text-xs mt-0.5">
+                            Assigned to: {shop.sales_rep_first_name
+                              ? `${shop.sales_rep_first_name} ${shop.sales_rep_last_name || ''}`.trim()
+                              : 'Unassigned'}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -750,6 +806,11 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
 
               {selectedShop && (
                 <div className="mt-2 p-4 bg-gray-50 rounded-lg">
+                  {adminMode && selectedShop.sales_rep_id && selectedRepresentativeId && selectedShop.sales_rep_id !== selectedRepresentativeId && (
+                    <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      This shop is assigned to {selectedShop.sales_rep_first_name} {selectedShop.sales_rep_last_name}, but this order will be recorded for the representative selected above.
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div>
                       <span className="font-medium text-gray-600">Max Bill:</span>
@@ -988,7 +1049,7 @@ export default function CreateOrder({ onOrderPlaced }: CreateOrderProps) {
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={!selectedShop || orderItems.length === 0 || !!validationError || stockErrors.length > 0 || submitting}
+              disabled={!selectedShop || (adminMode && !selectedRepresentativeId) || orderItems.length === 0 || !!validationError || stockErrors.length > 0 || submitting}
               className="w-full px-6 py-3 bg-purple-100 hover:bg-purple-200 disabled:bg-gray-100 disabled:cursor-not-allowed text-purple-700 font-medium rounded-lg transition-colors"
             >
               {submitting ? 'Creating Order...' : 'Review & Create Order'}

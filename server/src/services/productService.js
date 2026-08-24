@@ -80,9 +80,10 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
   );
 }
 
-async function logPaymentAction({ payment_id, order_id, sales_rep_id, action, details }) {
+async function logPaymentAction({ payment_id, order_id, sales_rep_id, action, details, client }) {
   const logId = randomUUID();
-  await pool.query(
+  const executor = client || pool;
+  await executor.query(
     'INSERT INTO payment_logs (id, payment_id, order_id, sales_rep_id, action, details, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW())',
     [logId, payment_id, order_id, sales_rep_id, action, details ? JSON.stringify(details) : null]
   );
@@ -288,6 +289,8 @@ async function listAssignedShops(sales_rep_id) {
       GROUP BY shop_id
     )
     SELECT s.*,
+      u.first_name AS sales_rep_first_name,
+      u.last_name AS sales_rep_last_name,
       COALESCE(sf.collectible_outstanding, 0) AS current_outstanding,
       -- Older APKs calculate available credit locally from this field. Keep the
       -- full balance in current_outstanding, but expose only credit-limit-bearing
@@ -301,10 +304,30 @@ async function listAssignedShops(sales_rep_id) {
       COALESCE(sf.active_bills, 0) AS active_bills
     FROM shops s
     LEFT JOIN shop_financials sf ON sf.shop_id = s.id
-    WHERE s.sales_rep_id = $1
+    LEFT JOIN users u ON u.id = s.sales_rep_id
+    WHERE ($1::text IS NULL OR s.sales_rep_id = $1)
     ORDER BY s.created_at DESC
   `, [sales_rep_id]);
   return result.rows;
+}
+
+async function getAdminOrderEntryOptions() {
+  const [shops, products, representativesRes] = await Promise.all([
+    listAssignedShops(null),
+    listOrderProducts(),
+    pool.query(`
+      SELECT id, first_name, last_name, email
+      FROM users
+      WHERE role = 'representative'
+      ORDER BY first_name ASC, last_name ASC
+    `),
+  ]);
+
+  return {
+    shops,
+    products,
+    representatives: representativesRes.rows,
+  };
 }
 
 async function listOrderProducts() {
@@ -339,7 +362,7 @@ function buildOrderFingerprint({ shop_id, sales_rep_id, notes, items }) {
     .digest('hex');
 }
 
-async function createOrder({ shop_id, sales_rep_id, notes, items }) {
+async function createOrder({ shop_id, sales_rep_id, notes, items, created_by_admin_id = null }) {
   if (!shop_id || !sales_rep_id) throw new Error('Shop and sales representative are required');
   if (!Array.isArray(items) || items.length === 0) throw new Error('At least one order item is required');
 
@@ -382,6 +405,12 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
     // Serialize order creation per shop. This makes credit checks consistent and
     // ensures an APK retry waits for the original request before checking for it.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`create-order:${shop_id}`]);
+
+    const representativeRes = await client.query(
+      `SELECT id FROM users WHERE id = $1 AND role = 'representative'`,
+      [sales_rep_id]
+    );
+    if (representativeRes.rows.length === 0) throw new Error('Sales representative not found');
 
     const duplicateRes = await client.query(
       `SELECT *
@@ -477,6 +506,7 @@ async function createOrder({ shop_id, sales_rep_id, notes, items }) {
       total,
       notes,
       status: 'pending',
+      ...(created_by_admin_id ? { created_by_admin_id } : {}),
       items: normalizedItems.map(item => ({
           product_id: item.product_id,
           product_name: productsById.get(item.product_id)?.name || 'Unknown Product',
@@ -2933,7 +2963,8 @@ module.exports = {
 module.exports.listShopLogs = listShopLogs; 
 module.exports.listAssignedShops = listAssignedShops;
 module.exports.listOrderProducts = listOrderProducts;
-module.exports.createOrder = createOrder; 
+module.exports.createOrder = createOrder;
+module.exports.getAdminOrderEntryOptions = getAdminOrderEntryOptions;
 module.exports.listOrders = listOrders; 
 module.exports.billsForRepresentative = billsForRepresentative; 
 module.exports.recordPayment = recordPayment; 
@@ -3079,6 +3110,106 @@ async function setCollectionReviewed({ payment_id, admin_id, reviewed }) {
   };
 }
 
+async function updateCollectionAsAdmin({ payment_id, admin_id, amount, notes, payment_date }) {
+  if (!payment_id) throw new Error('Collection ID is required');
+  if (!admin_id) throw new Error('Admin not found');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const paymentRes = await client.query(`
+      SELECT p.id, p.order_id, p.sales_rep_id, p.amount, p.notes, p.created_at,
+             p.reviewed_at, p.reviewed_by
+      FROM payments p
+      JOIN orders o ON o.id = p.order_id
+      WHERE p.id = $1
+      FOR UPDATE OF p, o
+    `, [payment_id]);
+
+    if (paymentRes.rows.length === 0) {
+      const error = new Error('Collection not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payment = paymentRes.rows[0];
+    const parsedAmount = amount === undefined ? Number(payment.amount) : Number(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      throw new Error('Collection amount must be greater than zero');
+    }
+    const normalizedAmount = Math.round(parsedAmount * 100) / 100;
+
+    let normalizedNotes = payment.notes;
+    if (notes !== undefined) {
+      if (notes !== null && typeof notes !== 'string') throw new Error('Collection notes must be text');
+      normalizedNotes = typeof notes === 'string' && notes.trim() ? notes.trim() : null;
+      if (normalizedNotes && normalizedNotes.length > 1000) {
+        throw new Error('Collection notes cannot exceed 1000 characters');
+      }
+    }
+
+    let normalizedDate = payment.created_at;
+    if (payment_date !== undefined) {
+      const parsedDate = new Date(payment_date);
+      if (Number.isNaN(parsedDate.getTime())) throw new Error('Invalid collection date');
+      normalizedDate = parsedDate;
+    }
+
+    const financials = await getOrderFinancials(payment.order_id, client);
+    const outstanding = Number(financials?.outstanding || 0);
+    const maximumAmount = Number(payment.amount) + outstanding;
+    if (normalizedAmount > maximumAmount + 0.005) {
+      throw new Error(`Collection amount cannot exceed ${maximumAmount.toFixed(2)} LKR`);
+    }
+
+    const updatedRes = await client.query(`
+      UPDATE payments
+      SET amount = $2, notes = $3, created_at = $4
+      WHERE id = $1
+      RETURNING id, order_id, sales_rep_id, amount, notes, created_at,
+                reviewed_at, reviewed_by
+    `, [payment_id, normalizedAmount, normalizedNotes, normalizedDate]);
+    const updated = updatedRes.rows[0];
+
+    await logPaymentAction({
+      payment_id,
+      order_id: payment.order_id,
+      sales_rep_id: payment.sales_rep_id,
+      action: 'admin_edit',
+      client,
+      details: {
+        admin_id,
+        before: {
+          amount: Number(payment.amount),
+          notes: payment.notes,
+          payment_date: payment.created_at,
+        },
+        after: {
+          amount: Number(updated.amount),
+          notes: updated.notes,
+          payment_date: updated.created_at,
+        },
+      },
+    });
+
+    await client.query('COMMIT');
+    return {
+      payment_id: updated.id,
+      payment_amount: Number(updated.amount),
+      payment_notes: updated.notes,
+      payment_date: updated.created_at,
+      reviewed_at: updated.reviewed_at,
+      reviewed_by: updated.reviewed_by,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports.getRepresentativeCollections = getRepresentativeCollections;
 module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats;
 module.exports.getShopDetails = getShopDetails;
@@ -3088,6 +3219,7 @@ module.exports.recordPurchase = recordPurchase;
 module.exports.listPurchaseLogs = listPurchaseLogs;
 module.exports.getAdminCollections = getAdminCollections;
 module.exports.setCollectionReviewed = setCollectionReviewed;
+module.exports.updateCollectionAsAdmin = updateCollectionAsAdmin;
 module.exports.recordPaymentAsAdmin = recordPaymentAsAdmin;
 module.exports.createOutOfDate = createOutOfDate;
 module.exports.getOrderOutOfDateHistory = getOrderOutOfDateHistory;

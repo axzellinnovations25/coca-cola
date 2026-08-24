@@ -138,6 +138,32 @@ exports.createOrder = async (req, res) => {
   }
 };
 
+exports.getAdminOrderEntryOptions = async (req, res) => {
+  try {
+    const options = await shopService.getAdminOrderEntryOptions();
+    res.json(options);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.createOrderAsAdmin = async (req, res) => {
+  try {
+    const created_by_admin_id = req.user && req.user.id;
+    const { shop_id, sales_rep_id, notes, items } = req.body || {};
+    const order = await shopService.createOrder({
+      shop_id,
+      sales_rep_id,
+      notes,
+      items,
+      created_by_admin_id,
+    });
+    res.status(201).json({ order });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
 exports.listOrders = async (req, res) => {
   try {
     const sales_rep_id = req.user && req.user.id;
@@ -548,7 +574,7 @@ exports.sendOrderSMS = async (req, res) => {
     });
     
     // Verify the order belongs to this sales rep
-    if (orderDetails.sales_rep_id !== sales_rep_id) {
+    if (req.user.role === 'representative' && orderDetails.sales_rep_id !== sales_rep_id) {
       console.log('sendOrderSMS access denied', {
         order_id,
         orderSalesRepId: orderDetails.sales_rep_id,
@@ -590,7 +616,7 @@ exports.sendOrderWhatsApp = async (req, res) => {
     }
     
     // Verify the order belongs to this sales rep
-    if (orderDetails.sales_rep_id !== sales_rep_id) {
+    if (req.user.role === 'representative' && orderDetails.sales_rep_id !== sales_rep_id) {
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -627,7 +653,7 @@ exports.sendOrderNotification = async (req, res) => {
     }
     
     // Verify the order belongs to this sales rep
-    if (orderDetails.sales_rep_id !== sales_rep_id) {
+    if (req.user.role === 'representative' && orderDetails.sales_rep_id !== sales_rep_id) {
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -995,6 +1021,24 @@ exports.setCollectionReviewed = async (req, res) => {
       message: reviewed ? 'Collection marked as reviewed' : 'Collection marked as unreviewed',
       collection,
     });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+};
+
+exports.updateCollectionAsAdmin = async (req, res) => {
+  try {
+    const { payment_id } = req.params;
+    const admin_id = req.user && req.user.id;
+    const { amount, notes, payment_date } = req.body || {};
+    const collection = await productService.updateCollectionAsAdmin({
+      payment_id,
+      admin_id,
+      amount,
+      notes,
+      payment_date,
+    });
+    res.json({ message: 'Collection updated successfully', collection });
   } catch (error) {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
