@@ -3,32 +3,32 @@ import { apiFetch, apiFetchBlob, clearCache } from '../../../utils/api';
 
 interface Shop {
   id: string;
-  name: string;
-  address: string;
-  owner_nic: string;
-  email?: string;
-  phone: string;
+  name: string | null;
+  address: string | null;
+  owner_nic: string | null;
+  email?: string | null;
+  phone: string | null;
   sales_rep_id?: string;
-  sales_rep_first_name?: string;
-  sales_rep_last_name?: string;
-  max_bill_amount: number;
-  max_active_bills: number;
+  sales_rep_first_name?: string | null;
+  sales_rep_last_name?: string | null;
+  max_bill_amount: number | null;
+  max_active_bills: number | null;
   created_at?: string;
   updated_at?: string;
 }
 
 interface ShopDetails {
   id: string;
-  name: string;
-  address: string;
-  owner_nic: string;
-  email?: string;
-  phone: string;
+  name: string | null;
+  address: string | null;
+  owner_nic: string | null;
+  email?: string | null;
+  phone: string | null;
   sales_rep_id?: string;
-  sales_rep_first_name?: string;
-  sales_rep_last_name?: string;
-  max_bill_amount: number;
-  max_active_bills: number;
+  sales_rep_first_name?: string | null;
+  sales_rep_last_name?: string | null;
+  max_bill_amount: number | null;
+  max_active_bills: number | null;
   current_outstanding: number;
   active_bills: number;
   available_credit: number;
@@ -158,8 +158,11 @@ export default function ShopManagement() {
     setForm(f => ({ ...f, phone: validated }));
   };
 
+  const displayText = (value: unknown, fallback = '-') => String(value ?? fallback);
+  const searchableText = (value: unknown) => String(value ?? '').toLowerCase();
+
   // Helper function to format phone number for display
-  const formatPhoneForDisplay = (phone: string) => {
+  const formatPhoneForDisplay = (phone: string | null) => {
     if (!phone) return '-';
     // If it's already in the correct format, return as is
     if (phone.match(/^\+94\d{9}$/)) {
@@ -186,10 +189,10 @@ export default function ShopManagement() {
   const filteredShops = shops.filter(shop => {
     const q = search.toLowerCase();
     return (
-      shop.name.toLowerCase().includes(q) ||
-      shop.address.toLowerCase().includes(q) ||
-      shop.phone.toLowerCase().includes(q) ||
-      ((shop.sales_rep_first_name || '') + ' ' + (shop.sales_rep_last_name || '')).toLowerCase().includes(q)
+      searchableText(shop.name).includes(q) ||
+      searchableText(shop.address).includes(q) ||
+      searchableText(shop.phone).includes(q) ||
+      `${shop.sales_rep_first_name ?? ''} ${shop.sales_rep_last_name ?? ''}`.toLowerCase().includes(q)
     );
   });
   // Sorting
@@ -226,12 +229,12 @@ export default function ShopManagement() {
     const rows = [
       ['Name', 'Address', 'Phone', 'Sales Rep', 'Max Bill Amount', 'Max Active Bills'],
       ...sortedShops.map(s => [
-        s.name,
-        s.address,
-        s.phone,
-        s.sales_rep_first_name ? `${s.sales_rep_first_name} ${s.sales_rep_last_name}` : '-',
-        s.max_bill_amount,
-        s.max_active_bills
+        s.name ?? '',
+        s.address ?? '',
+        s.phone ?? '',
+        s.sales_rep_first_name ? `${s.sales_rep_first_name} ${s.sales_rep_last_name ?? ''}` : '-',
+        s.max_bill_amount ?? '',
+        s.max_active_bills ?? ''
       ]),
     ];
     const csv = rows.map(row => row.map(String).map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -309,14 +312,14 @@ export default function ShopManagement() {
   const openEditModal = (shop: Shop) => {
     setEditShop(shop);
     setForm({
-      name: shop.name,
-      address: shop.address,
-      owner_nic: shop.owner_nic,
+      name: shop.name ?? '',
+      address: shop.address ?? '',
+      owner_nic: shop.owner_nic ?? '',
       email: shop.email || '',
-      phone: shop.phone,
+      phone: shop.phone ?? '',
       sales_rep_id: shop.sales_rep_id || '',
-      max_bill_amount: shop.max_bill_amount.toString(),
-      max_active_bills: shop.max_active_bills.toString(),
+      max_bill_amount: (shop.max_bill_amount ?? '').toString(),
+      max_active_bills: (shop.max_active_bills ?? '').toString(),
     });
     setFormError('');
     setShowEditModal(true);
@@ -621,14 +624,14 @@ export default function ShopManagement() {
                     paginatedShops.map(shop => (
                       <tr key={shop.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
                         <td className="py-3.5 px-5 text-sm">
-                          <span className="font-semibold text-gray-900">{shop.name}</span>
+                          <span className="font-semibold text-gray-900">{displayText(shop.name)}</span>
                         </td>
-                        <td className="py-3.5 px-5 text-sm text-gray-600">{shop.address}</td>
+                        <td className="py-3.5 px-5 text-sm text-gray-600">{displayText(shop.address)}</td>
                         <td className="py-3.5 px-5 text-sm text-gray-600">{formatPhoneForDisplay(shop.phone)}</td>
                         <td className="py-3.5 px-5 text-sm">
                           {shop.sales_rep_first_name ? (
                             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                              {shop.sales_rep_first_name} {shop.sales_rep_last_name}
+                              {shop.sales_rep_first_name} {shop.sales_rep_last_name ?? ''}
                             </span>
                           ) : (
                             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">
@@ -637,9 +640,9 @@ export default function ShopManagement() {
                           )}
                         </td>
                         <td className="py-3.5 px-5 text-sm font-semibold text-violet-600">
-                          {typeof shop.max_bill_amount === 'number' ? shop.max_bill_amount.toFixed(2) : Number(shop.max_bill_amount).toFixed(2)} LKR
+                          {Number(shop.max_bill_amount ?? 0).toFixed(2)} LKR
                         </td>
-                        <td className="py-3.5 px-5 text-sm font-semibold text-gray-900">{shop.max_active_bills}</td>
+                        <td className="py-3.5 px-5 text-sm font-semibold text-gray-900">{shop.max_active_bills ?? 0}</td>
                         <td className="py-3.5 px-5 text-sm">
                           <div className="flex items-center gap-1.5">
                             <button
@@ -1002,7 +1005,7 @@ export default function ShopManagement() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900">{selectedShopDetails.name}</h3>
+                    <h3 className="text-lg font-bold text-gray-900">{displayText(selectedShopDetails.name, 'Unnamed shop')}</h3>
                     <p className="text-sm text-gray-500">Shop Details</p>
                   </div>
                 </div>
@@ -1054,17 +1057,17 @@ export default function ShopManagement() {
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h4 className="text-sm font-bold text-gray-700 mb-3">Shop Information</h4>
                     <dl className="space-y-2 text-sm">
-                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Name</dt><dd className="text-gray-900">{selectedShopDetails.name}</dd></div>
-                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Address</dt><dd className="text-gray-900">{selectedShopDetails.address}</dd></div>
-                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Phone</dt><dd className="text-gray-900">{selectedShopDetails.phone}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Name</dt><dd className="text-gray-900">{displayText(selectedShopDetails.name)}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Address</dt><dd className="text-gray-900">{displayText(selectedShopDetails.address)}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Phone</dt><dd className="text-gray-900">{formatPhoneForDisplay(selectedShopDetails.phone)}</dd></div>
                       <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Email</dt><dd className="text-gray-900">{selectedShopDetails.email || 'N/A'}</dd></div>
-                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Owner NIC</dt><dd className="text-gray-900">{selectedShopDetails.owner_nic}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-24 flex-shrink-0">Owner NIC</dt><dd className="text-gray-900">{displayText(selectedShopDetails.owner_nic)}</dd></div>
                     </dl>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4">
                     <h4 className="text-sm font-bold text-gray-700 mb-3">Sales Representative</h4>
                     <dl className="space-y-2 text-sm">
-                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Name</dt><dd className="text-gray-900">{selectedShopDetails.sales_rep_first_name ? `${selectedShopDetails.sales_rep_first_name} ${selectedShopDetails.sales_rep_last_name}` : 'Unassigned'}</dd></div>
+                      <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Name</dt><dd className="text-gray-900">{selectedShopDetails.sales_rep_first_name ? `${selectedShopDetails.sales_rep_first_name} ${selectedShopDetails.sales_rep_last_name ?? ''}` : 'Unassigned'}</dd></div>
                       <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Max Bill</dt><dd className="text-gray-900">{Number(selectedShopDetails.max_bill_amount).toFixed(2)} LKR</dd></div>
                       <div className="flex gap-2"><dt className="font-semibold text-gray-500 w-32 flex-shrink-0">Max Active</dt><dd className="text-gray-900">{selectedShopDetails.max_active_bills}</dd></div>
                     </dl>
