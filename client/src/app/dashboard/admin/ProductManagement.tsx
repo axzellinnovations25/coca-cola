@@ -3,8 +3,8 @@ import { apiFetch, clearCache } from '../../../utils/api';
 
 interface Product {
   id: string;
-  name: string;
-  description: string;
+  name: string | null;
+  description: string | null;
   unit_price: number;
   stock: number;
   reserved_stock: number;
@@ -35,13 +35,14 @@ export default function ProductManagement() {
   // Sorting state
   const [sortBy, setSortBy] = useState<'name' | 'description' | 'unit_price' | 'stock' | 'created_at'>('created_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const searchableText = (value: unknown) => String(value ?? '').toLowerCase();
 
   // Filtered and paginated products
   const filteredProducts = products.filter(product => {
     const q = search.toLowerCase();
     return (
-      product.name.toLowerCase().includes(q) ||
-      product.description.toLowerCase().includes(q)
+      searchableText(product.name).includes(q) ||
+      searchableText(product.description).includes(q)
     );
   });
   const totalPages = Math.ceil(filteredProducts.length / PRODUCTS_PER_PAGE) || 1;
@@ -74,7 +75,7 @@ export default function ProductManagement() {
   function exportCSV() {
     const rows = [
       ['Name', 'Description', 'Price', 'Stock'],
-      ...sortedProducts.map(p => [p.name, p.description, p.unit_price, p.stock]),
+      ...sortedProducts.map(p => [p.name ?? '', p.description ?? '', p.unit_price, p.stock]),
     ];
     const csv = rows.map(row => row.map(String).map(cell => `"${cell.replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -153,8 +154,8 @@ export default function ProductManagement() {
   const openEditModal = (product: Product) => {
     setEditProduct(product);
     setForm({
-      name: product.name,
-      description: product.description,
+      name: product.name ?? '',
+      description: product.description ?? '',
       unit_price: product.unit_price.toString(),
       stock: product.stock.toString(),
       units_per_case: (product.units_per_case ?? 12).toString(),
@@ -345,10 +346,10 @@ export default function ProductManagement() {
                 {paginatedProducts.map(product => (
                   <tr key={product.id} className="border-b border-gray-100 last:border-0 hover:bg-violet-50/30 transition-colors">
                     <td className="py-3.5 px-5">
-                      <span className="text-sm font-semibold text-gray-900">{product.name}</span>
+                      <span className="text-sm font-semibold text-gray-900">{product.name ?? '-'}</span>
                     </td>
                     <td className="py-3.5 px-5">
-                      <span className="text-sm text-gray-600">{product.description}</span>
+                      <span className="text-sm text-gray-600">{product.description ?? '-'}</span>
                     </td>
                     <td className="py-3.5 px-5">
                       <span className="text-sm font-semibold text-violet-600">
@@ -560,7 +561,7 @@ export default function ProductManagement() {
               </div>
               <div>
                 <h3 className="text-base font-bold text-gray-900">Edit Product</h3>
-                <p className="text-xs text-gray-500">{editProduct.name}</p>
+                <p className="text-xs text-gray-500">{editProduct.name ?? 'Unnamed product'}</p>
               </div>
             </div>
             <form className="flex flex-col gap-4" onSubmit={handleEditProduct}>
