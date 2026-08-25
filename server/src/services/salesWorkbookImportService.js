@@ -1,7 +1,5 @@
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const AdmZip = require('adm-zip');
 const pool = require('../db');
 
 function decodeXml(value) {
@@ -61,23 +59,24 @@ function excelDateToIso(serial) {
   return date.toISOString().slice(0, 10);
 }
 
-function extractWorkbook(buffer) {
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sales-xlsx-'));
-  const zipPath = path.join(tmpRoot, 'workbook.zip');
-  fs.writeFileSync(zipPath, buffer);
-  const psQuote = value => `'${String(value).replace(/'/g, "''")}'`;
-  execFileSync('powershell.exe', [
-    '-NoProfile',
-    '-Command',
-    `Expand-Archive -LiteralPath ${psQuote(zipPath)} -DestinationPath ${psQuote(tmpRoot)} -Force`,
-  ], { stdio: 'pipe' });
-  return tmpRoot;
+function normalizeZipPath(value) {
+  return String(value || '').replace(/^\/+/, '').replace(/\\/g, '/');
 }
 
-function readSharedStrings(rootDir) {
-  const file = path.join(rootDir, 'xl', 'sharedStrings.xml');
-  if (!fs.existsSync(file)) return [];
-  const xml = fs.readFileSync(file, 'utf8');
+function readZipText(zip, entryPath) {
+  const entry = zip.getEntry(normalizeZipPath(entryPath));
+  return entry ? entry.getData().toString('utf8') : null;
+}
+
+function resolveZipPath(baseDir, target) {
+  const normalizedTarget = normalizeZipPath(target);
+  if (normalizedTarget.startsWith('/')) return normalizedTarget.slice(1);
+  return normalizeZipPath(path.posix.normalize(path.posix.join(baseDir, normalizedTarget)));
+}
+
+function readSharedStrings(zip) {
+  const xml = readZipText(zip, 'xl/sharedStrings.xml');
+  if (!xml) return [];
   return [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(match => (
     [...match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)]
       .map(t => stripTags(t[1]))
@@ -85,10 +84,9 @@ function readSharedStrings(rootDir) {
   ));
 }
 
-function readYellowStyleIds(rootDir) {
-  const file = path.join(rootDir, 'xl', 'styles.xml');
-  if (!fs.existsSync(file)) return new Set();
-  const xml = fs.readFileSync(file, 'utf8');
+function readYellowStyleIds(zip) {
+  const xml = readZipText(zip, 'xl/styles.xml');
+  if (!xml) return new Set();
   const fillsMatch = xml.match(/<fills\b[^>]*>([\s\S]*?)<\/fills>/);
   const yellowFillIds = new Set();
   if (fillsMatch) {
@@ -108,19 +106,21 @@ function readYellowStyleIds(rootDir) {
   return yellowStyleIds;
 }
 
-function readSheets(rootDir) {
-  const workbook = fs.readFileSync(path.join(rootDir, 'xl', 'workbook.xml'), 'utf8');
-  const rels = fs.readFileSync(path.join(rootDir, 'xl', '_rels', 'workbook.xml.rels'), 'utf8');
+function readSheets(zip) {
+  const workbook = readZipText(zip, 'xl/workbook.xml');
+  const rels = readZipText(zip, 'xl/_rels/workbook.xml.rels');
+  if (!workbook || !rels) throw new Error('Invalid workbook: missing workbook metadata');
   const relMap = new Map([...rels.matchAll(/<Relationship\b[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)]
     .map(match => [match[1], match[2]]));
   return [...workbook.matchAll(/<sheet\b[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)].map(match => ({
     name: decodeXml(match[1]),
-    file: path.join(rootDir, 'xl', relMap.get(match[2])),
+    file: resolveZipPath('xl', relMap.get(match[2])),
   }));
 }
 
-function readRows(sheetFile, sharedStrings, yellowStyleIds) {
-  const xml = fs.readFileSync(sheetFile, 'utf8');
+function readRows(zip, sheetFile, sharedStrings, yellowStyleIds) {
+  const xml = readZipText(zip, sheetFile);
+  if (!xml) return [];
   const rows = [];
   for (const rowMatch of xml.matchAll(/<row\b[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
     const row = { number: Number(rowMatch[1]), cells: {}, isYellow: false };
@@ -144,54 +144,47 @@ function readRows(sheetFile, sharedStrings, yellowStyleIds) {
 }
 
 function parseWorkbook(buffer) {
-  const rootDir = extractWorkbook(buffer);
-  try {
-    const sharedStrings = readSharedStrings(rootDir);
-    const yellowStyleIds = readYellowStyleIds(rootDir);
-    const sheets = readSheets(rootDir);
-    const vouchers = [];
-    for (const sheet of sheets) {
-      let current = null;
-      for (const row of readRows(sheet.file, sharedStrings, yellowStyleIds)) {
-        if (row.number <= 5) continue;
-        const c = row.cells;
-        if (c.A && c.B && c.C) {
-          current = {
-            repName: sheet.name.trim(),
-            date: excelDateToIso(c.A),
-            billNo: String(c.B).trim(),
-            shopName: String(c.C).trim(),
-            isYellow: row.isYellow,
-            yellowRows: row.isYellow ? [row.number] : [],
-            items: [],
-          };
-          vouchers.push(current);
-        }
-        if (!current || !c.D) continue;
-        if (row.isYellow && !current.yellowRows.includes(row.number)) {
-          current.isYellow = true;
-          current.yellowRows.push(row.number);
-        }
-        const qty = Number(c.H || c.E || 0);
-        const unitPrice = Number(c.J || c.G || 0);
-        const amount = Number(c.K || 0);
-        if (!Number.isFinite(qty) || qty <= 0) continue;
-        current.items.push({
-          sourceName: String(c.D).trim(),
-          quantity: qty,
-          unit_price: unitPrice,
-          amount,
-          isFree: unitPrice === 0 || amount === 0 || /\bFREE\b/i.test(String(c.D)),
-        });
+  const zip = new AdmZip(buffer);
+  const sharedStrings = readSharedStrings(zip);
+  const yellowStyleIds = readYellowStyleIds(zip);
+  const sheets = readSheets(zip);
+  const vouchers = [];
+  for (const sheet of sheets) {
+    let current = null;
+    for (const row of readRows(zip, sheet.file, sharedStrings, yellowStyleIds)) {
+      if (row.number <= 5) continue;
+      const c = row.cells;
+      if (c.A && c.B && c.C) {
+        current = {
+          repName: sheet.name.trim(),
+          date: excelDateToIso(c.A),
+          billNo: String(c.B).trim(),
+          shopName: String(c.C).trim(),
+          isYellow: row.isYellow,
+          yellowRows: row.isYellow ? [row.number] : [],
+          items: [],
+        };
+        vouchers.push(current);
       }
-    }
-    return vouchers.filter(voucher => voucher.items.length > 0);
-  } finally {
-    const resolved = path.resolve(rootDir);
-    if (resolved.startsWith(path.resolve(os.tmpdir()))) {
-      fs.rmSync(resolved, { recursive: true, force: true });
+      if (!current || !c.D) continue;
+      if (row.isYellow && !current.yellowRows.includes(row.number)) {
+        current.isYellow = true;
+        current.yellowRows.push(row.number);
+      }
+      const qty = Number(c.H || c.E || 0);
+      const unitPrice = Number(c.J || c.G || 0);
+      const amount = Number(c.K || 0);
+      if (!Number.isFinite(qty) || qty <= 0) continue;
+      current.items.push({
+        sourceName: String(c.D).trim(),
+        quantity: qty,
+        unit_price: unitPrice,
+        amount,
+        isFree: unitPrice === 0 || amount === 0 || /\bFREE\b/i.test(String(c.D)),
+      });
     }
   }
+  return vouchers.filter(voucher => voucher.items.length > 0);
 }
 
 function buildLookup(rows, normalizer) {
