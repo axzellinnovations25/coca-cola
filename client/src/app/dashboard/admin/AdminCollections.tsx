@@ -45,6 +45,9 @@ function toLocalDateTimeInput(value: string) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500];
+
 export default function AdminCollections() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [reps, setReps] = useState<SalesRep[]>([]);
@@ -108,7 +111,7 @@ export default function AdminCollections() {
   }, [fetchCollections]);
 
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -126,8 +129,17 @@ export default function AdminCollections() {
   // Reset page when filters or search changes
   useEffect(() => { setPage(1); }, [filtered]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(current => Math.min(current, totalPages));
+  }, [totalPages]);
+
+  const handlePageSizeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setPageSize(Number(event.target.value));
+    setPage(1);
+  };
 
   // Summary stats computed from filtered results
   const stats = useMemo(() => {
@@ -402,9 +414,23 @@ export default function AdminCollections() {
 
       {/* Collections table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div className="px-5 py-4 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-gray-900">All Collections</h2>
-          <span className="text-xs text-gray-500">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-gray-500">
+              <span>Rows per page</span>
+              <select
+                value={pageSize}
+                onChange={handlePageSizeChange}
+                className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+              >
+                {PAGE_SIZE_OPTIONS.map(size => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </label>
+            <span className="text-xs text-gray-500">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
 
         {loading ? (
@@ -513,7 +539,7 @@ export default function AdminCollections() {
         {!loading && totalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
             <p className="text-xs text-gray-500">
-              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)} of {filtered.length}
             </p>
             <div className="flex items-center gap-1">
               <button
