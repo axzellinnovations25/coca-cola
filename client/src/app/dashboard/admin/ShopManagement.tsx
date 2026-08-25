@@ -154,6 +154,10 @@ export default function ShopManagement() {
   };
 
   const handlePhoneChange = (value: string) => {
+    if (!value.trim()) {
+      setForm(f => ({ ...f, phone: '' }));
+      return;
+    }
     const validated = validatePhoneNumber(value);
     setForm(f => ({ ...f, phone: validated }));
   };
@@ -331,14 +335,15 @@ export default function ShopManagement() {
     setFormLoading(true);
     setFormError('');
     try {
+      const optionalText = (value: string) => value.trim() || null;
       await apiFetch('/api/marudham/shops', {
         method: 'POST',
         body: JSON.stringify({
-          name: form.name,
-          address: form.address,
-          owner_nic: form.owner_nic,
-          email: form.email,
-          phone: form.phone,
+          name: form.name.trim(),
+          address: optionalText(form.address),
+          owner_nic: optionalText(form.owner_nic),
+          email: optionalText(form.email),
+          phone: optionalText(form.phone),
           sales_rep_id: form.sales_rep_id || null,
           max_bill_amount: parseFloat(form.max_bill_amount),
           max_active_bills: parseInt(form.max_active_bills, 10),
@@ -361,14 +366,15 @@ export default function ShopManagement() {
     setFormLoading(true);
     setFormError('');
     try {
+      const optionalText = (value: string) => value.trim() || null;
       await apiFetch(`/api/marudham/shops/${editShop.id}`, {
         method: 'PUT',
         body: JSON.stringify({
-          name: form.name,
-          address: form.address,
-          owner_nic: form.owner_nic,
-          email: form.email,
-          phone: form.phone,
+          name: form.name.trim(),
+          address: optionalText(form.address),
+          owner_nic: optionalText(form.owner_nic),
+          email: optionalText(form.email),
+          phone: optionalText(form.phone),
           sales_rep_id: form.sales_rep_id || null,
           max_bill_amount: parseFloat(form.max_bill_amount),
           max_active_bills: parseInt(form.max_active_bills, 10),
@@ -750,7 +756,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.address}
                   onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  required
                 />
               </div>
               <div>
@@ -761,7 +766,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.owner_nic}
                   onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
-                  required
                 />
               </div>
               <div>
@@ -782,7 +786,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.phone}
                   onChange={e => handlePhoneChange(e.target.value)}
-                  required
                 />
                 <p className="text-xs text-gray-400 mt-1">Format: +94 followed by 9 digits (e.g., +94712345678)</p>
               </div>
@@ -880,7 +883,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.address}
                   onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-                  required
                 />
               </div>
               <div>
@@ -891,7 +893,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.owner_nic}
                   onChange={e => setForm(f => ({ ...f, owner_nic: e.target.value }))}
-                  required
                 />
               </div>
               <div>
@@ -912,7 +913,6 @@ export default function ShopManagement() {
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white text-gray-900"
                   value={form.phone}
                   onChange={e => handlePhoneChange(e.target.value)}
-                  required
                 />
                 <p className="text-xs text-gray-400 mt-1">Format: +94 followed by 9 digits (e.g., +94712345678)</p>
               </div>

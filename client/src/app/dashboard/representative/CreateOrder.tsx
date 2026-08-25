@@ -43,6 +43,20 @@ interface OrderItem {
   free_quantity: number;
 }
 
+interface ImportedInvoice {
+  preview_id: string;
+  repName: string;
+  billNo: string;
+  date: string | null;
+  sourceShopName: string;
+  representative: SalesRepresentative | null;
+  shop: Shop | null;
+  notes: string;
+  items: OrderItem[];
+  total: number;
+  warnings: string[];
+}
+
 interface CreateOrderProps {
   onOrderPlaced?: () => void;
   adminMode?: boolean;
@@ -78,6 +92,10 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
   const [shopSearch, setShopSearch] = useState('');
   const [showShopDropdown, setShowShopDropdown] = useState(false);
   const [filteredShops, setFilteredShops] = useState<Shop[]>([]);
+  const [importedInvoices, setImportedInvoices] = useState<ImportedInvoice[]>([]);
+  const [importPreviewIndex, setImportPreviewIndex] = useState(0);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importMessage, setImportMessage] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -212,6 +230,155 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
   };
 
   const orderTotal = orderItems.reduce((sum, i) => sum + i.unit_price * i.quantity, 0);
+  const currentImportInvoice = importedInvoices[importPreviewIndex] || null;
+  const currentImportTotal = currentImportInvoice
+    ? currentImportInvoice.items.reduce((sum, item) => sum + Number(item.unit_price || 0) * Number(item.quantity || 0), 0)
+    : 0;
+
+  const fileToBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      resolve(result.includes(',') ? result.split(',')[1] : result);
+    };
+    reader.onerror = () => reject(new Error('Could not read workbook file'));
+    reader.readAsDataURL(file);
+  });
+
+  const handleImportWorkbook = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportLoading(true);
+    setImportMessage('');
+    setError('');
+
+    try {
+      const fileBase64 = await fileToBase64(file);
+      const data = await apiFetch('/api/marudham/orders/admin/import-preview', {
+        method: 'POST',
+        body: JSON.stringify({ fileBase64 }),
+      });
+      const invoices = (data.invoices || []).map((invoice: any) => ({
+        ...invoice,
+        items: (invoice.items || []).map((item: any) => ({
+          product_id: item.product_id || '',
+          name: item.name || item.source_name || '',
+          unit_price: Number(item.unit_price || 0),
+          quantity: Number(item.quantity || 0),
+          free_quantity: Number(item.free_quantity || 0),
+        })),
+      }));
+      setImportedInvoices(invoices);
+      setImportPreviewIndex(0);
+      setImportMessage(`Loaded ${invoices.length} invoices. ${data.excludedYellowVouchers || 0} yellow-highlighted invoices were excluded.`);
+    } catch (err: any) {
+      setImportMessage('');
+      setError(err.message);
+    } finally {
+      setImportLoading(false);
+      event.target.value = '';
+    }
+  };
+
+  const updateImportedInvoice = (updater: (invoice: ImportedInvoice) => ImportedInvoice) => {
+    setImportedInvoices(current =>
+      current.map((invoice, index) => index === importPreviewIndex ? updater(invoice) : invoice)
+    );
+  };
+
+  const updateImportedItem = (itemIndex: number, patch: Partial<OrderItem>) => {
+    updateImportedInvoice(invoice => ({
+      ...invoice,
+      items: invoice.items.map((item, index) => index === itemIndex ? { ...item, ...patch } : item),
+    }));
+  };
+
+  const addImportedItem = () => {
+    const product = products[0];
+    if (!product) return;
+    updateImportedInvoice(invoice => ({
+      ...invoice,
+      items: [
+        ...invoice.items,
+        {
+          product_id: product.id,
+          name: product.name,
+          unit_price: Number(product.unit_price || 0),
+          quantity: 1,
+          free_quantity: 0,
+        },
+      ],
+    }));
+  };
+
+  const removeImportedItem = (itemIndex: number) => {
+    updateImportedInvoice(invoice => ({
+      ...invoice,
+      items: invoice.items.filter((_, index) => index !== itemIndex),
+    }));
+  };
+
+  const removeCurrentImportedInvoice = () => {
+    setImportedInvoices(current => current.filter((_, index) => index !== importPreviewIndex));
+    setImportPreviewIndex(index => Math.max(0, Math.min(index, importedInvoices.length - 2)));
+  };
+
+  const handleCreateImportedInvoice = async () => {
+    if (!currentImportInvoice) return;
+    const invoiceItems = currentImportInvoice.items.flatMap(item => [
+      ...(Number(item.quantity) > 0 ? [{
+        product_id: item.product_id,
+        unit_price: Number(item.unit_price),
+        quantity: Number(item.quantity),
+      }] : []),
+      ...(Number(item.free_quantity) > 0 ? [{
+        product_id: item.product_id,
+        unit_price: 0,
+        quantity: Number(item.free_quantity),
+      }] : []),
+    ]);
+
+    if (!currentImportInvoice.shop?.id || !currentImportInvoice.representative?.id || invoiceItems.length === 0) {
+      setError('Select a shop, representative, and at least one item before creating this invoice.');
+      return;
+    }
+    if (invoiceItems.some(item => !item.product_id || item.quantity <= 0 || !Number.isFinite(item.unit_price))) {
+      setError('Every imported line must have a product, valid quantity, and valid unit price.');
+      return;
+    }
+
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/marudham/orders/admin', {
+        method: 'POST',
+        body: JSON.stringify({
+          shop_id: currentImportInvoice.shop.id,
+          sales_rep_id: currentImportInvoice.representative.id,
+          notes: currentImportInvoice.notes,
+          items: invoiceItems,
+          auto_approve: true,
+        }),
+      });
+      const createdOrder = {
+        ...res.order,
+        shop: currentImportInvoice.shop,
+        items: currentImportInvoice.items,
+        notes: currentImportInvoice.notes,
+        created_at: new Date().toISOString(),
+      };
+      setReceipt(createdOrder);
+      setShowReceipt(true);
+      setImportedInvoices(current => current.filter((_, index) => index !== importPreviewIndex));
+      setImportPreviewIndex(index => Math.max(0, Math.min(index, importedInvoices.length - 2)));
+      setImportMessage(`Created invoice ${currentImportInvoice.billNo}.`);
+      onOrderPlaced?.();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSendSMS = async () => {
     if (!receipt) return;
@@ -712,6 +879,233 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
         {adminMode ? 'Create an order for any shop on behalf of a sales representative' : 'Create a new order for your assigned shop'}
       </p>
 
+      {adminMode && (
+        <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Upload Sales Workbook</h3>
+              <p className="text-xs text-gray-500">Preview imported invoices one by one, edit them, then create orders.</p>
+            </div>
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-lg bg-purple-100 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-200">
+              {importLoading ? 'Analyzing...' : 'Choose Excel File'}
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={handleImportWorkbook}
+                disabled={importLoading}
+              />
+            </label>
+          </div>
+
+          {importMessage && (
+            <div className="mt-3 rounded-lg border border-green-100 bg-green-50 px-3 py-2 text-sm text-green-700">
+              {importMessage}
+            </div>
+          )}
+
+          {currentImportInvoice && (
+            <div className="mt-4 rounded-lg border border-gray-200">
+              <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase text-gray-500">
+                    Invoice {importPreviewIndex + 1} of {importedInvoices.length}
+                  </p>
+                  <h4 className="text-base font-semibold text-gray-900">
+                    {currentImportInvoice.billNo} - {currentImportInvoice.sourceShopName}
+                  </h4>
+                  <p className="text-xs text-gray-500">
+                    Sheet rep: {currentImportInvoice.repName}{currentImportInvoice.date ? ` | Date: ${currentImportInvoice.date}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
+                    disabled={importPreviewIndex === 0}
+                    onClick={() => setImportPreviewIndex(index => Math.max(0, index - 1))}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
+                    disabled={importPreviewIndex >= importedInvoices.length - 1}
+                    onClick={() => setImportPreviewIndex(index => Math.min(importedInvoices.length - 1, index + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 p-4 lg:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Sales Representative</label>
+                  <select
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    value={currentImportInvoice.representative?.id || ''}
+                    onChange={event => {
+                      const representative = representatives.find(rep => rep.id === event.target.value) || null;
+                      updateImportedInvoice(invoice => ({ ...invoice, representative }));
+                    }}
+                  >
+                    <option value="">Select representative...</option>
+                    {representatives.map(rep => (
+                      <option key={rep.id} value={rep.id}>{rep.first_name} {rep.last_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Shop</label>
+                  <select
+                    className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                    value={currentImportInvoice.shop?.id || ''}
+                    onChange={event => {
+                      const shop = shops.find(item => item.id === event.target.value) || null;
+                      updateImportedInvoice(invoice => ({ ...invoice, shop }));
+                    }}
+                  >
+                    <option value="">Select shop...</option>
+                    {shops.map(shop => (
+                      <option key={shop.id} value={shop.id}>{shop.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {!!currentImportInvoice.warnings.length && (
+                <div className="mx-4 mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {currentImportInvoice.warnings.map((warning, index) => (
+                    <div key={index}>{warning}</div>
+                  ))}
+                </div>
+              )}
+
+              <div className="px-4 pb-4">
+                <label className="mb-1 block text-xs font-semibold uppercase text-gray-500">Notes</label>
+                <textarea
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                  rows={2}
+                  value={currentImportInvoice.notes}
+                  onChange={event => updateImportedInvoice(invoice => ({ ...invoice, notes: event.target.value }))}
+                />
+              </div>
+
+              <div className="px-4 pb-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h5 className="text-sm font-semibold text-gray-900">Invoice Items</h5>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+                    onClick={addImportedItem}
+                  >
+                    Add Item
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="min-w-[660px] w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Product</th>
+                        <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2 text-right">Unit</th>
+                        <th className="px-3 py-2 text-right">Total</th>
+                        <th className="px-3 py-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {currentImportInvoice.items.map((item, index) => (
+                        <tr key={`${item.product_id}-${index}`}>
+                          <td className="px-3 py-2">
+                            <select
+                              className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900"
+                              value={item.product_id}
+                              onChange={event => {
+                                const product = products.find(productItem => productItem.id === event.target.value);
+                                updateImportedItem(index, {
+                                  product_id: event.target.value,
+                                  name: product?.name || item.name,
+                                  unit_price: Number(product?.unit_price ?? item.unit_price),
+                                });
+                              }}
+                            >
+                              <option value="">Select product...</option>
+                              {products.map(product => (
+                                <option key={product.id} value={product.id}>{product.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-right text-sm text-gray-900"
+                              value={item.quantity}
+                              onChange={event => updateImportedItem(index, { quantity: Number(event.target.value || 0) })}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="w-24 rounded-lg border border-gray-200 px-2 py-1.5 text-right text-sm text-gray-900"
+                              value={item.unit_price}
+                              onChange={event => updateImportedItem(index, { unit_price: Number(event.target.value || 0) })}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-900">
+                            {(Number(item.unit_price || 0) * Number(item.quantity || 0)).toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              className="rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-100"
+                              onClick={() => removeImportedItem(index)}
+                            >
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-700">Total</span>
+                  <span className="text-base font-bold text-gray-900">{currentImportTotal.toFixed(2)} LKR</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 border-t border-gray-100 p-4 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={() => setImportedInvoices([])}
+                >
+                  Clear Import
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+                  onClick={removeCurrentImportedInvoice}
+                >
+                  Remove This Order
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg bg-purple-100 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-200 disabled:opacity-50"
+                  disabled={submitting}
+                  onClick={handleCreateImportedInvoice}
+                >
+                  {submitting ? 'Creating...' : 'Create This Order'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-gray-500 text-center py-8 font-medium">Loading shops and products...</div>
       ) : error ? (
@@ -1060,14 +1454,14 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
 
       {/* Order Confirmation Modal */}
       {showConfirm && orderToConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <div className="text-center mb-6">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="text-center p-6 pb-4 flex-shrink-0">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Confirm Order</h3>
               <p className="text-gray-900 text-sm">Please review your order details before confirming</p>
             </div>
             
-            <div className="space-y-4 mb-6">
+            <div className="space-y-4 px-6 pb-6 overflow-y-auto min-h-0">
               <div>
                 <h4 className="font-medium text-gray-900 mb-2">Shop Details</h4>
                 <div className="bg-gray-50 p-3 rounded-lg">
@@ -1126,7 +1520,7 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 p-6 pt-4 border-t border-gray-100 bg-white flex-shrink-0">
               <button
                 onClick={() => {
                   setShowConfirm(false);

@@ -197,27 +197,79 @@ async function listShops() {
   return result.rows;
 }
 
+function normalizeShopPayload({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills }) {
+  const text = (value) => {
+    if (value === undefined || value === null) return '';
+    const trimmed = String(value).trim();
+    return trimmed;
+  };
+  const nullableText = (value) => {
+    const trimmed = text(value);
+    return trimmed || null;
+  };
+  const shopName = text(name);
+  const maxBillAmount = Number(max_bill_amount);
+  const maxActiveBills = Number.parseInt(max_active_bills, 10);
+
+  if (!shopName) throw new Error('Shop name is required');
+  if (!Number.isFinite(maxBillAmount)) throw new Error('Max bill amount is required');
+  if (!Number.isFinite(maxActiveBills)) throw new Error('Max active bills is required');
+
+  return {
+    name: shopName,
+    address: nullableText(address),
+    owner_nic: nullableText(owner_nic),
+    email: nullableText(email),
+    phone: nullableText(phone),
+    sales_rep_id: nullableText(sales_rep_id),
+    max_bill_amount: maxBillAmount,
+    max_active_bills: maxActiveBills,
+  };
+}
+
 async function addShop({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, user_id }) {
+  const shopPayload = normalizeShopPayload({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills });
   const id = randomUUID();
   const result = await pool.query(
     `INSERT INTO shops (id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills]
+    [
+      id,
+      shopPayload.name,
+      shopPayload.address,
+      shopPayload.owner_nic,
+      shopPayload.email,
+      shopPayload.phone,
+      shopPayload.sales_rep_id,
+      shopPayload.max_bill_amount,
+      shopPayload.max_active_bills,
+    ]
   );
   const shop = result.rows[0];
-  await logShopAction({ shop_id: shop.id, user_id, action: 'add', details: { name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills } });
+  await logShopAction({ shop_id: shop.id, user_id, action: 'add', details: shopPayload });
   return shop;
 }
 
 async function editShop({ id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, user_id }) {
+  const shopPayload = normalizeShopPayload({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills });
   const beforeRes = await pool.query('SELECT * FROM shops WHERE id = $1', [id]);
   if (beforeRes.rows.length === 0) throw new Error('Shop not found');
   const before = beforeRes.rows[0];
   const result = await pool.query(
     `UPDATE shops SET name = $1, address = $2, owner_nic = $3, email = $4, phone = $5, sales_rep_id = $6, max_bill_amount = $7, max_active_bills = $8, updated_at = now()
      WHERE id = $9 RETURNING *`,
-    [name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, id]
+    [
+      shopPayload.name,
+      shopPayload.address,
+      shopPayload.owner_nic,
+      shopPayload.email,
+      shopPayload.phone,
+      shopPayload.sales_rep_id,
+      shopPayload.max_bill_amount,
+      shopPayload.max_active_bills,
+      id,
+    ]
   );
   if (result.rows.length === 0) throw new Error('Shop not found');
   const after = result.rows[0];

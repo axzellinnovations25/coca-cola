@@ -88,6 +88,7 @@ router.put('/orders/:order_id', authenticateJWT, requireSalesRep, productControl
 
 // Admin order endpoints (must come before sales rep specific routes)
 router.get('/orders/admin/entry-options', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminOrderEntryOptions);
+router.post('/orders/admin/import-preview', authenticateJWT, requireAdminOrSuperadmin, productController.previewSalesWorkbookImport);
 router.post('/orders/admin', authenticateJWT, requireAdminOrSuperadmin, productController.createOrderAsAdmin);
 router.get('/orders/all', authenticateJWT, requireAdminOrSuperadmin, productController.listAllOrders);
 router.get('/orders/:order_id', authenticateJWT, requireAdminOrSuperadmin, productController.getOrderDetails);

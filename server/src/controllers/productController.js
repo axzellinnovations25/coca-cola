@@ -55,6 +55,7 @@ exports.listProductLogs = async (req, res) => {
 };
 
 const shopService = require('../services/productService');
+const salesWorkbookImportService = require('../services/salesWorkbookImportService');
 
 exports.listShops = async (req, res) => {
   try {
@@ -72,6 +73,7 @@ exports.addShop = async (req, res) => {
     const shop = await shopService.addShop({ name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, user_id });
     res.status(201).json({ shop });
   } catch (error) {
+    console.error('addShop failed:', error.message);
     res.status(400).json({ error: error.message });
   }
 };
@@ -84,6 +86,7 @@ exports.editShop = async (req, res) => {
     const shop = await shopService.editShop({ id, name, address, owner_nic, email, phone, sales_rep_id, max_bill_amount, max_active_bills, user_id });
     res.json({ shop });
   } catch (error) {
+    console.error('editShop failed:', error.message);
     res.status(400).json({ error: error.message });
   }
 };
@@ -150,7 +153,7 @@ exports.getAdminOrderEntryOptions = async (req, res) => {
 exports.createOrderAsAdmin = async (req, res) => {
   try {
     const created_by_admin_id = req.user && req.user.id;
-    const { shop_id, sales_rep_id, notes, items } = req.body || {};
+    const { shop_id, sales_rep_id, notes, items, auto_approve } = req.body || {};
     const order = await shopService.createOrder({
       shop_id,
       sales_rep_id,
@@ -158,8 +161,24 @@ exports.createOrderAsAdmin = async (req, res) => {
       items,
       created_by_admin_id,
     });
-    res.status(201).json({ order });
+    let approval = null;
+    if (auto_approve) {
+      approval = await shopService.approveOrder(order.id, created_by_admin_id);
+      order.status = 'approved';
+    }
+    res.status(201).json({ order, approval });
   } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.previewSalesWorkbookImport = async (req, res) => {
+  try {
+    const { fileBase64, includeYellow } = req.body || {};
+    const result = await salesWorkbookImportService.analyzeSalesWorkbook({ fileBase64, includeYellow: Boolean(includeYellow) });
+    res.json(result);
+  } catch (error) {
+    console.error('previewSalesWorkbookImport failed:', error.message);
     res.status(400).json({ error: error.message });
   }
 };

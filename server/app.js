@@ -46,7 +46,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use('/api/session', sessionRouter);
 // Important: mount fixed routes before the dynamic `:client` matcher,
 // otherwise `/api/session/*` is captured by `/api/:client/*`.
