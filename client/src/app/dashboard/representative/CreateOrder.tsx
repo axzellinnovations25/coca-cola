@@ -372,7 +372,6 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
       setImportedInvoices(current => current.filter((_, index) => index !== importPreviewIndex));
       setImportPreviewIndex(index => Math.max(0, Math.min(index, importedInvoices.length - 2)));
       setImportMessage(`Created invoice ${currentImportInvoice.billNo}.`);
-      onOrderPlaced?.();
     } catch (err: any) {
       setError(err.message);
     } finally {
