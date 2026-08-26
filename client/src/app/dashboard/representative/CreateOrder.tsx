@@ -1003,11 +1003,12 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
                   </button>
                 </div>
                 <div className="overflow-x-auto rounded-lg border border-gray-200">
-                  <table className="min-w-[660px] w-full text-sm">
+                  <table className="min-w-[760px] w-full text-sm">
                     <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                       <tr>
                         <th className="px-3 py-2 text-left">Product</th>
                         <th className="px-3 py-2 text-right">Qty</th>
+                        <th className="px-3 py-2 text-right">Free</th>
                         <th className="px-3 py-2 text-right">Unit</th>
                         <th className="px-3 py-2 text-right">Total</th>
                         <th className="px-3 py-2"></th>
@@ -1042,6 +1043,15 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
                               className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-right text-sm text-gray-900"
                               value={item.quantity}
                               onChange={event => updateImportedItem(index, { quantity: Number(event.target.value || 0) })}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-right text-sm text-gray-900"
+                              value={item.free_quantity}
+                              onChange={event => updateImportedItem(index, { free_quantity: Number(event.target.value || 0) })}
                             />
                           </td>
                           <td className="px-3 py-2">
