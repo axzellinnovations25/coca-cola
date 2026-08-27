@@ -263,13 +263,15 @@ export default function OrderManagement() {
 
   const handleSaveEdit = async () => {
     if (!editOrder) return;
-    if (editItems.length === 0) {
-      setEditError('Please add at least one item.');
-      return;
-    }
-    if (editItems.some(item => !item.quantity || item.quantity <= 0)) {
-      setEditError('All items must have a quantity greater than 0.');
-      return;
+    if (editOrder.status === 'pending') {
+      if (editItems.length === 0) {
+        setEditError('Please add at least one item.');
+        return;
+      }
+      if (editItems.some(item => !item.quantity || item.quantity <= 0)) {
+        setEditError('All items must have a quantity greater than 0.');
+        return;
+      }
     }
 
     setEditLoading(true);
@@ -1116,7 +1118,7 @@ export default function OrderManagement() {
                       </button>
                       <button onClick={() => handleEditOrder(order.id)}
                         className="px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors">
-                        Edit
+                        {order.status === 'pending' ? 'Edit' : 'Invoice'}
                       </button>
                       <button onClick={() => handleDeleteOrder(order)} disabled={deletingOrder === order.id}
                         className="px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
@@ -1188,7 +1190,7 @@ export default function OrderManagement() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
-                <h3 className="text-base font-bold text-gray-900">Edit Order</h3>
+                <h3 className="text-base font-bold text-gray-900">{editOrder.status === 'pending' ? 'Edit Order' : 'Edit Invoice Number'}</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{editOrder.shop.name} · #{editOrder.id.slice(0, 8)}</p>
               </div>
               <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditInvoiceNumber(''); setEditError(''); setNewProductFree(false); }}
@@ -1214,6 +1216,7 @@ export default function OrderManagement() {
               <div>
                 <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Notes</label>
                 <textarea rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Add notes for this order…"
+                  disabled={editOrder.status !== 'pending'}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none" />
               </div>
 
@@ -1236,8 +1239,10 @@ export default function OrderManagement() {
                       </div>
                       <input type="number" min={1} value={item.quantity}
                         onChange={(e) => { const qty = Number(e.target.value); setEditItems(prev => prev.map((i, index) => index === idx ? { ...i, quantity: qty, total: i.unit_price * qty } : i)); }}
+                        disabled={editOrder.status !== 'pending'}
                         className="w-20 px-2 py-1.5 border border-gray-200 rounded-lg text-sm text-center text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300" />
                       <button onClick={() => setEditItems(prev => prev.filter((_, index) => index !== idx))}
+                        disabled={editOrder.status !== 'pending'}
                         className="w-8 h-8 flex items-center justify-center rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1248,6 +1253,7 @@ export default function OrderManagement() {
                 </div>
               </div>
 
+              {editOrder.status === 'pending' && (
               <div className="border border-dashed border-gray-200 rounded-xl p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Add Product</p>
                 <div className="flex flex-col sm:flex-row gap-2">
@@ -1273,6 +1279,7 @@ export default function OrderManagement() {
                   <span className="text-sm text-gray-700">Add as free item (no charge)</span>
                 </label>
               </div>
+              )}
 
               {editError && (
                 <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
