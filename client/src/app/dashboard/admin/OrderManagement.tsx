@@ -275,17 +275,23 @@ export default function OrderManagement() {
     setEditLoading(true);
     setEditError('');
     try {
+      const body = editOrder.status === 'pending'
+        ? {
+            notes: editNotes,
+            invoice_number: editInvoiceNumber,
+            items: editItems.map(item => ({
+              product_id: item.product_id,
+              quantity: item.quantity,
+              unit_price: item.unit_price
+            }))
+          }
+        : {
+            invoice_number: editInvoiceNumber
+          };
+
       await apiFetch(`/api/marudham/orders/${editOrder.id}/admin`, {
         method: 'PUT',
-        body: JSON.stringify({
-          notes: editNotes,
-          invoice_number: editInvoiceNumber,
-          items: editItems.map(item => ({
-            product_id: item.product_id,
-            quantity: item.quantity,
-            unit_price: item.unit_price
-          }))
-        })
+        body: JSON.stringify(body)
       });
 
       clearCache('/api/marudham/orders');
