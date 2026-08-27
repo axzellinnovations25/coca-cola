@@ -520,13 +520,14 @@ exports.updateOrderAsAdmin = async (req, res) => {
   try {
     const { order_id } = req.params;
     const admin_id = req.user && req.user.id;
-    const { notes, items } = req.body;
+    const { notes, items, invoice_number } = req.body;
 
     const updatedOrder = await shopService.updateOrderAsAdmin({
       order_id,
       admin_id,
       notes,
-      items
+      items,
+      invoice_number
     });
 
     res.json({ order: updatedOrder });

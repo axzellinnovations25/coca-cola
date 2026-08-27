@@ -26,6 +26,7 @@ interface Order {
   total: number;
   status: string;
   notes?: string;
+  invoice_number?: string | null;
   sales_rep_first_name?: string;
   sales_rep_last_name?: string;
   sales_rep_email?: string;
@@ -40,6 +41,7 @@ interface OrderDetails {
   net_due?: number;
   status: string;
   notes?: string;
+  invoice_number?: string | null;
   created_at: string;
   collected: number;
   outstanding: number;
@@ -168,6 +170,7 @@ export default function OrderManagement() {
   const [editOrder, setEditOrder] = useState<OrderDetails | null>(null);
   const [editItems, setEditItems] = useState<OrderDetails['items']>([]);
   const [editNotes, setEditNotes] = useState('');
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState('');
   const [products, setProducts] = useState<Product[]>([]);
@@ -249,6 +252,7 @@ export default function OrderManagement() {
       }
       setEditOrder(details);
       setEditNotes(details.notes || '');
+      setEditInvoiceNumber(details.invoice_number || '');
       setEditItems(details.items ? details.items.map(item => ({ ...item })) : []);
     } catch (err: any) {
       setEditError(err.message || 'Failed to load order for editing.');
@@ -275,6 +279,7 @@ export default function OrderManagement() {
         method: 'PUT',
         body: JSON.stringify({
           notes: editNotes,
+          invoice_number: editInvoiceNumber,
           items: editItems.map(item => ({
             product_id: item.product_id,
             quantity: item.quantity,
@@ -290,6 +295,7 @@ export default function OrderManagement() {
       setEditOrder(null);
       setEditItems([]);
       setEditNotes('');
+      setEditInvoiceNumber('');
       triggerRefresh();
     } catch (err: any) {
       setEditError(err.message || 'Failed to update order.');
@@ -350,6 +356,7 @@ export default function OrderManagement() {
         setEditOrder(null);
         setEditItems([]);
         setEditNotes('');
+        setEditInvoiceNumber('');
       }
 
       const collectionsRemoved = Number(response.deletion?.collections_removed || 0);
@@ -787,6 +794,7 @@ export default function OrderManagement() {
     const q = search.toLowerCase();
     const matchesSearch = 
       order.shop_name.toLowerCase().includes(q) ||
+      (order.invoice_number || '').toLowerCase().includes(q) ||
       (order.sales_rep_first_name || '').toLowerCase().includes(q) ||
       (order.sales_rep_last_name || '').toLowerCase().includes(q) ||
       (order.sales_rep_email || '').toLowerCase().includes(q) ||
@@ -826,9 +834,10 @@ export default function OrderManagement() {
 
   const exportData = () => {
     const csvData = [
-      ['Date', 'Shop', 'Sales Representative', 'Total', 'Status', 'Notes'],
+      ['Date', 'Invoice Number', 'Shop', 'Sales Representative', 'Total', 'Status', 'Notes'],
       ...(filteredOrders || []).map(order => [
         new Date(order.created_at).toLocaleDateString(),
+        order.invoice_number || '',
         order.shop_name,
         `${order.sales_rep_first_name || ''} ${order.sales_rep_last_name || ''}`.trim() || order.sales_rep_email || 'N/A',
         `${Number(order.total).toFixed(2)} LKR`,
@@ -978,7 +987,7 @@ export default function OrderManagement() {
             </svg>
             <input
               type="text"
-              placeholder="Search shop, rep, or amount…"
+              placeholder="Search invoice, shop, rep, or amount..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent"
@@ -1046,6 +1055,7 @@ export default function OrderManagement() {
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Date</th>
+                <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Inv No</th>
                 <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Shop</th>
                 <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sales Rep</th>
                 <th className="text-left py-3 px-5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Total</th>
@@ -1065,6 +1075,9 @@ export default function OrderManagement() {
                   <td className="py-3.5 px-5">
                     <p className="text-sm font-medium text-gray-900">{new Date(order.created_at).toLocaleDateString()}</p>
                     <p className="text-xs text-gray-400">{new Date(order.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                  </td>
+                  <td className="py-3.5 px-5">
+                    <p className="text-sm font-semibold text-gray-900">{order.invoice_number || '—'}</p>
                   </td>
                   <td className="py-3.5 px-5">
                     <p className="text-sm font-semibold text-gray-900">{order.shop_name}</p>
@@ -1172,7 +1185,7 @@ export default function OrderManagement() {
                 <h3 className="text-base font-bold text-gray-900">Edit Order</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{editOrder.shop.name} · #{editOrder.id.slice(0, 8)}</p>
               </div>
-              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); setNewProductFree(false); }}
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditInvoiceNumber(''); setEditError(''); setNewProductFree(false); }}
                 className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1181,6 +1194,17 @@ export default function OrderManagement() {
             </div>
 
             <div className="px-6 py-5 space-y-5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Invoice Number</label>
+                <input
+                  value={editInvoiceNumber}
+                  onChange={(e) => setEditInvoiceNumber(e.target.value)}
+                  placeholder="Enter invoice number"
+                  maxLength={80}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-violet-300"
+                />
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Notes</label>
                 <textarea rows={3} value={editNotes} onChange={(e) => setEditNotes(e.target.value)} placeholder="Add notes for this order…"
@@ -1255,7 +1279,7 @@ export default function OrderManagement() {
             </div>
 
             <div className="flex gap-3 justify-end px-6 py-4 border-t border-gray-100">
-              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditError(''); setNewProductFree(false); }} disabled={editLoading}
+              <button onClick={() => { setEditOrder(null); setEditItems([]); setEditNotes(''); setEditInvoiceNumber(''); setEditError(''); setNewProductFree(false); }} disabled={editLoading}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
                 Cancel
               </button>
@@ -1309,6 +1333,7 @@ export default function OrderManagement() {
                     <p className="text-sm font-bold text-gray-900">{selectedOrder.sales_rep?.first_name} {selectedOrder.sales_rep?.last_name}</p>
                     <p className="text-xs text-gray-500">{selectedOrder.sales_rep?.email || '—'}</p>
                     <p className="text-xs text-gray-500">{new Date(selectedOrder.created_at).toLocaleString()}</p>
+                    <p className="text-xs text-gray-500">Invoice: {selectedOrder.invoice_number || '—'}</p>
                   </div>
                 </div>
 

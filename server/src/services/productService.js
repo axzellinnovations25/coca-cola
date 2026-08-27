@@ -9,6 +9,19 @@ const {
 
 const LEGACY_AMOUNT_RETURN_ITEM_PREFIX = 'legacy-return-amount:';
 
+function invoiceNumberFromFingerprint(requestFingerprint) {
+  if (!requestFingerprint || !String(requestFingerprint).startsWith('legacy:')) return null;
+  return String(requestFingerprint).slice('legacy:'.length) || null;
+}
+
+function normalizeInvoiceNumber(invoiceNumber) {
+  if (invoiceNumber === undefined) return undefined;
+  const normalized = String(invoiceNumber || '').trim();
+  if (!normalized) return null;
+  if (normalized.length > 80) throw new Error('Invoice number must be 80 characters or less');
+  return normalized;
+}
+
 async function logProductAction({ product_id, user_id, action, details, client }) {
   const logId = randomUUID();
   const executor = client || pool;
@@ -729,28 +742,39 @@ async function updatePendingOrderForSalesRep({ order_id, sales_rep_id, notes, it
   }
 }
 
-async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
+async function updateOrderAsAdmin({ order_id, admin_id, notes, items, invoice_number }) {
   if (!order_id) throw new Error('Order ID is required');
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new Error('Order items are required');
-  }
+  const normalizedInvoiceNumber = normalizeInvoiceNumber(invoice_number);
+  const shouldUpdateInvoiceNumber = normalizedInvoiceNumber !== undefined && normalizedInvoiceNumber !== null;
+  const hasItemPayload = Array.isArray(items);
 
   const orderRes = await pool.query(
-    'SELECT id, shop_id, sales_rep_id, status, total, notes FROM orders WHERE id = $1',
+    'SELECT id, shop_id, sales_rep_id, status, total, notes, request_fingerprint FROM orders WHERE id = $1',
     [order_id]
   );
   if (orderRes.rows.length === 0) throw new Error('Order not found');
   const order = orderRes.rows[0];
-  if (order.status !== 'pending') {
-    throw new Error('Issued invoices are immutable; use a return and credit note instead');
-  }
 
-  const normalizedItems = items.map(item => ({
+  const currentItemsRes = await pool.query(
+    'SELECT product_id, unit_price, quantity, total FROM order_items WHERE order_id = $1 ORDER BY product_id, unit_price, quantity',
+    [order_id]
+  );
+  const currentItems = currentItemsRes.rows.map(item => ({
     product_id: item.product_id,
     quantity: Number(item.quantity),
     unit_price: Number(item.unit_price)
   }));
+  const normalizedItems = hasItemPayload
+    ? items.map(item => ({
+        product_id: item.product_id,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unit_price)
+      }))
+    : currentItems;
 
+  if (hasItemPayload && normalizedItems.length === 0) {
+    throw new Error('Order items are required');
+  }
   if (normalizedItems.some(item => !item.product_id || isNaN(item.quantity) || item.quantity <= 0)) {
     throw new Error('Invalid order items');
   }
@@ -762,6 +786,20 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
   );
   if (productsRes.rows.length !== uniqueProductIds.length) {
     throw new Error('One or more products are invalid');
+  }
+
+  const normalizeComparableItems = orderItems => orderItems
+    .map(item => ({
+      product_id: String(item.product_id),
+      quantity: Number(item.quantity),
+      unit_price: Number(item.unit_price)
+    }))
+    .sort((a, b) => `${a.product_id}:${a.unit_price}:${a.quantity}`.localeCompare(`${b.product_id}:${b.unit_price}:${b.quantity}`));
+  const requestedNotes = notes === undefined ? order.notes : (notes || null);
+  const notesChanged = requestedNotes !== (order.notes || null);
+  const itemsChanged = JSON.stringify(normalizeComparableItems(normalizedItems)) !== JSON.stringify(normalizeComparableItems(currentItems));
+  if (order.status !== 'pending' && (itemsChanged || notesChanged)) {
+    throw new Error('Issued invoices are immutable; use a return and credit note instead');
   }
 
   const total = normalizedItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
@@ -846,12 +884,16 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
     }
 
     await client.query(
-      'UPDATE orders SET notes = $1, total = $2 WHERE id = $3',
-      [notes || null, total, order_id]
+      `UPDATE orders
+       SET notes = $1,
+           total = $2,
+           request_fingerprint = CASE WHEN $4::text IS NULL THEN request_fingerprint ELSE $4::text END
+       WHERE id = $3`,
+      [requestedNotes, total, order_id, shouldUpdateInvoiceNumber ? `legacy:${normalizedInvoiceNumber}` : null]
     );
 
-    await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
-
+    if (itemsChanged) {
+      await client.query('DELETE FROM order_items WHERE order_id = $1', [order_id]);
       for (const item of normalizedItems) {
         await client.query(
           `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
@@ -859,6 +901,7 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
           [randomUUID(), order_id, item.product_id, item.unit_price, item.quantity, item.unit_price * item.quantity]
         );
       }
+    }
 
     await client.query('COMMIT');
 
@@ -870,18 +913,26 @@ async function updateOrderAsAdmin({ order_id, admin_id, notes, items }) {
         before: {
           total: Number(order.total),
           notes: order.notes,
+          invoice_number: invoiceNumberFromFingerprint(order.request_fingerprint),
           items: beforeItemsRes.rows
         },
         after: {
           total,
-          notes: notes || null,
+          notes: requestedNotes,
+          invoice_number: shouldUpdateInvoiceNumber ? normalizedInvoiceNumber : invoiceNumberFromFingerprint(order.request_fingerprint),
           items: normalizedItems
         },
         status: order.status
       }
     });
 
-    return { id: order_id, total, notes: notes || null, status: order.status };
+    return {
+      id: order_id,
+      total,
+      notes: requestedNotes,
+      invoice_number: shouldUpdateInvoiceNumber ? normalizedInvoiceNumber : invoiceNumberFromFingerprint(order.request_fingerprint),
+      status: order.status
+    };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -1089,6 +1140,10 @@ async function listOrders(sales_rep_id) {
 async function listAllOrders() {
   const result = await pool.query(`
     SELECT o.id, o.shop_id, s.name as shop_name, o.created_at, o.total, o.status, o.notes,
+      CASE
+        WHEN o.request_fingerprint LIKE 'legacy:%' THEN NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '')
+        ELSE NULL
+      END as invoice_number,
       u.first_name as sales_rep_first_name, u.last_name as sales_rep_last_name, u.email as sales_rep_email,
       (SELECT COUNT(*) FROM order_items oi WHERE oi.order_id = o.id) as item_count
     FROM orders o
@@ -1370,7 +1425,10 @@ async function billsForRepresentative(sales_rep_id) {
   const ordersRes = await pool.query(`
     WITH ${ORDER_FINANCIALS_CTES}
     SELECT o.id, o.shop_id, o.created_at, o.total, of.is_legacy,
-      NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '') AS invoice_number,
+      CASE
+        WHEN o.request_fingerprint LIKE 'legacy:%' THEN NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '')
+        ELSE NULL
+      END AS invoice_number,
       of.collected, of.out_of_date_credit, of.return_credit, of.approved_credit,
       of.net_collectible, of.outstanding, of.customer_credit,
       COALESCE((
@@ -2280,6 +2338,10 @@ async function getOrderDetails(order_id) {
   const orderRes = await pool.query(`
     SELECT o.id, o.shop_id, o.sales_rep_id, o.total, o.status, o.notes, o.created_at,
            COALESCE(o.request_fingerprint LIKE 'legacy:%', FALSE) AS is_legacy,
+           CASE
+             WHEN o.request_fingerprint LIKE 'legacy:%' THEN NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '')
+             ELSE NULL
+           END AS invoice_number,
            s.name as shop_name, s.address as shop_address, s.phone as shop_phone,
            u.first_name as sales_rep_first_name, u.last_name as sales_rep_last_name, u.email as sales_rep_email
     FROM orders o
@@ -2373,6 +2435,7 @@ async function getOrderDetails(order_id) {
     total: Number(order.total),
     status: order.status,
     notes: order.notes,
+    invoice_number: order.invoice_number || null,
     created_at: order.created_at,
     collected: collected,
     out_of_date_value: outOfDateValue,
