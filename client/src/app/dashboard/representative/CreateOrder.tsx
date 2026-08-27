@@ -256,6 +256,7 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
       const fileBase64 = await fileToBase64(file);
       const data = await apiFetch('/api/marudham/orders/admin/import-preview', {
         method: 'POST',
+        signal: AbortSignal.timeout(60000),
         body: JSON.stringify({ fileBase64 }),
       });
       const invoices = (data.invoices || []).map((invoice: any) => ({
@@ -352,6 +353,7 @@ export default function CreateOrder({ onOrderPlaced, adminMode = false }: Create
     try {
       const res = await apiFetch('/api/marudham/orders/admin', {
         method: 'POST',
+        signal: AbortSignal.timeout(60000),
         body: JSON.stringify({
           shop_id: currentImportInvoice.shop.id,
           sales_rep_id: currentImportInvoice.representative.id,

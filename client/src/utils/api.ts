@@ -202,8 +202,8 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
     let res = await fetch(`${base}${path}`, { 
       ...options, 
       headers,
-      // Add timeout for better UX
-      signal: AbortSignal.timeout(10000) // 10 second timeout
+      // Add timeout for better UX; allow slower bulk operations to opt in to more time.
+      signal: options.signal || AbortSignal.timeout(10000)
     });
     
     // If token expired, try to refresh it
@@ -215,7 +215,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
         res = await fetch(`${base}${path}`, { 
           ...options, 
           headers,
-          signal: AbortSignal.timeout(10000)
+          signal: options.signal || AbortSignal.timeout(10000)
         });
       } else {
         // Refresh failed, redirect to login
@@ -273,7 +273,7 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   } catch (error) {
     // Handle specific error types
     if (error instanceof Error) {
-      if (error.name === 'AbortError') {
+      if (error.name === 'AbortError' || error.name === 'TimeoutError') {
         throw new Error('Request timeout - please try again');
       }
       if (error.message.includes('Failed to fetch')) {
