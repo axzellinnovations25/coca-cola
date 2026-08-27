@@ -1118,7 +1118,7 @@ export default function OrderManagement() {
                       </button>
                       <button onClick={() => handleEditOrder(order.id)}
                         className="px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors">
-                        {order.status === 'pending' ? 'Edit' : 'Invoice'}
+                        Edit
                       </button>
                       <button onClick={() => handleDeleteOrder(order)} disabled={deletingOrder === order.id}
                         className="px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
