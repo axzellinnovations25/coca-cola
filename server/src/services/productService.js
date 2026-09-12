@@ -1570,7 +1570,6 @@ async function recordPaymentAsAdmin({ order_id, admin_id, amount, notes }) {
 async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount }) {
   if (!order_id) throw new Error('Order ID is required');
   if (!admin_id) throw new Error('Admin not found');
-  if (!Array.isArray(items) || items.length === 0) throw new Error('Out-of-date items are required');
 
   const parsedCreditAmount = Number(credit_amount);
   if (credit_amount === '' || credit_amount === null || credit_amount === undefined || !Number.isFinite(parsedCreditAmount) || parsedCreditAmount < 0) {
@@ -1578,19 +1577,28 @@ async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount
   }
   const creditAmount = Math.round(parsedCreditAmount * 100) / 100;
 
-  const normalizedItems = items.map(i => ({
+  const normalizedItems = Array.isArray(items) ? items.map(i => ({
     product_id: i.product_id,
     unit_price: Number(i.unit_price),
     qty: Number(i.qty)
-  }));
+  })) : [];
   if (normalizedItems.some(i => !i.product_id || !Number.isFinite(i.unit_price) || i.unit_price < 0 || !Number.isInteger(i.qty) || i.qty <= 0)) {
     throw new Error('Invalid out-of-date items');
   }
 
-  const orderRes = await pool.query('SELECT id, shop_id, status FROM orders WHERE id = $1', [order_id]);
+  const orderRes = await pool.query(
+    `SELECT id, shop_id, status,
+       COALESCE(request_fingerprint LIKE 'legacy:%', FALSE) AS is_legacy
+     FROM orders
+     WHERE id = $1`,
+    [order_id]
+  );
   if (orderRes.rows.length === 0) throw new Error('Order not found');
   const order = orderRes.rows[0];
   if (order.status !== 'approved') throw new Error('Only approved orders can be marked out-of-date');
+  if (normalizedItems.length === 0 && !order.is_legacy) {
+    throw new Error('Out-of-date items are required');
+  }
 
   // Load order items to validate quantities and prices
   const orderItemsRes = await pool.query(

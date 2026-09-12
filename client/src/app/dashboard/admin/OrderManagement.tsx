@@ -51,6 +51,7 @@ interface OrderDetails {
   return_credit?: number;
   approved_credit?: number;
   resolved_customer_credit?: number;
+  is_legacy?: boolean;
   shop: {
     name: string;
     address: string;
@@ -194,6 +195,7 @@ export default function OrderManagement() {
   const projectedOutstanding = Math.max(currentOutstanding - selectedOutOfDateCredit, 0);
   const projectedOutstandingReduction = currentOutstanding - projectedOutstanding;
   const projectedExcessCredit = Math.max(selectedOutOfDateCredit - currentOutstanding, 0);
+  const isLegacyCreditOnly = Boolean(selectedOrder?.is_legacy) && (selectedOrder?.items?.length || 0) === 0;
 
   useEffect(() => {
     fetchOrders();
@@ -651,7 +653,7 @@ export default function OrderManagement() {
         return { product_id, unit_price: Number(unit_price), qty: Number(qty) };
       });
 
-    if (items.length === 0) {
+    if (items.length === 0 && !isLegacyCreditOnly) {
       setOutOfDateError('Please enter at least one qty to mark as out-of-date.');
       return;
     }
@@ -668,7 +670,9 @@ export default function OrderManagement() {
     const outstandingReduction = outstandingBefore - outstandingAfter;
     const excessCredit = Math.max(creditAmount - outstandingBefore, 0);
     const confirmationLines = [
-      `Marked product value: ${markedValue.toFixed(2)} LKR`,
+      isLegacyCreditOnly
+        ? 'Legacy bill: no product lines are available'
+        : `Marked product value: ${markedValue.toFixed(2)} LKR`,
       `Admin-set credit: ${creditAmount.toFixed(2)} LKR`,
       `Outstanding reduction: ${outstandingReduction.toFixed(2)} LKR`,
       `New outstanding: ${outstandingAfter.toFixed(2)} LKR`,
@@ -1392,6 +1396,11 @@ export default function OrderManagement() {
                     )}
 
                     <div className="space-y-2">
+                      {isLegacyCreditOnly && (
+                        <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          This legacy bill has no product lines. Enter the credit amount below to record the out-of-date adjustment.
+                        </p>
+                      )}
                       {(selectedOrder.items || []).map((item, idx) => {
                         const remainingQty = Number(item.remaining_qty ?? item.quantity);
                         const alreadyQty = Number(item.out_of_date_qty || 0);
@@ -1440,12 +1449,14 @@ export default function OrderManagement() {
                       <p className="mt-1 text-xs text-gray-400">This amount is chosen by the admin and will be applied directly to the bill.</p>
                     </div>
 
-                    {selectedOutOfDateValue > 0 && hasValidOutOfDateCredit && (
+                    {(selectedOutOfDateValue > 0 || isLegacyCreditOnly) && hasValidOutOfDateCredit && (
                       <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-violet-100 bg-violet-50 p-3 md:grid-cols-4">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Selected value</p>
-                          <p className="mt-1 text-sm font-bold text-violet-900">{selectedOutOfDateValue.toFixed(2)} LKR</p>
-                        </div>
+                        {!isLegacyCreditOnly && (
+                          <div>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Selected value</p>
+                            <p className="mt-1 text-sm font-bold text-violet-900">{selectedOutOfDateValue.toFixed(2)} LKR</p>
+                          </div>
+                        )}
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-600">Admin-set credit</p>
                           <p className="mt-1 text-sm font-bold text-violet-900">{selectedOutOfDateCredit.toFixed(2)} LKR</p>
