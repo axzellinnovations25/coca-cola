@@ -1063,3 +1063,14 @@ exports.updateCollectionAsAdmin = async (req, res) => {
     res.status(error.statusCode || 400).json({ error: error.message });
   }
 };
+
+exports.deleteCollectionAsAdmin = async (req, res) => {
+  try {
+    const { payment_id } = req.params;
+    const admin_id = req.user && req.user.id;
+    const deleted = await productService.deleteCollectionAsAdmin({ payment_id, admin_id });
+    res.json({ message: 'Collection deleted successfully', deleted });
+  } catch (error) {
+    res.status(error.statusCode || 400).json({ error: error.message });
+  }
+};

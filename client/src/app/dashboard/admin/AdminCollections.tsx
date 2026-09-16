@@ -69,6 +69,7 @@ export default function AdminCollections() {
   const [editDate, setEditDate] = useState('');
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(null);
 
   const fetchCollections = useCallback(async () => {
     setLoading(true);
@@ -260,6 +261,27 @@ export default function AdminCollections() {
       setEditError(err.message || 'Failed to update the collection.');
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const handleDelete = async (collection: Collection) => {
+    const confirmed = window.confirm(
+      `Delete this collection of ${collection.payment_amount.toFixed(2)} LKR from ${collection.shop.name}? This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingCollection(collection.payment_id);
+    setError('');
+    try {
+      await apiFetch(`/api/marudham/collections/admin/${collection.payment_id}`, {
+        method: 'DELETE',
+      });
+      setCollections(current => current.filter(item => item.payment_id !== collection.payment_id));
+      clearCache('/api/marudham/collections/admin');
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete the collection.');
+    } finally {
+      setDeletingCollection(null);
     }
   };
 
@@ -458,7 +480,6 @@ export default function AdminCollections() {
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Order</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Order Total</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Collected</th>
-                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Notes</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Admin Review</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Actions</th>
                 </tr>
@@ -492,9 +513,6 @@ export default function AdminCollections() {
                         +{c.payment_amount.toFixed(2)} LKR
                       </span>
                     </td>
-                    <td className="py-3.5 px-5 text-sm text-gray-500 max-w-[180px] truncate">
-                      {c.payment_notes || <span className="text-gray-300">—</span>}
-                    </td>
                     <td className="py-3.5 px-5 whitespace-nowrap">
                       <button
                         onClick={() => handleReviewToggle(c)}
@@ -518,6 +536,7 @@ export default function AdminCollections() {
                       </button>
                     </td>
                     <td className="py-3.5 px-5 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
                       <button
                         onClick={() => openEdit(c)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition-colors"
@@ -527,6 +546,17 @@ export default function AdminCollections() {
                         </svg>
                         Edit
                       </button>
+                      <button
+                        onClick={() => handleDelete(c)}
+                        disabled={deletingCollection === c.payment_id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-8 0h10" />
+                        </svg>
+                        {deletingCollection === c.payment_id ? 'Deleting...' : 'Delete'}
+                      </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

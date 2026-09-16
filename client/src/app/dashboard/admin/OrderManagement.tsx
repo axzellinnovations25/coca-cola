@@ -685,8 +685,10 @@ export default function OrderManagement() {
     setMarkingOutOfDate(true);
 
     try {
+      const outOfDateRequestTimeoutMs = 30000;
       const response = await apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`, {
         method: 'POST',
+        signal: AbortSignal.timeout(outOfDateRequestTimeoutMs),
         body: JSON.stringify({
           notes: outOfDateNotes || undefined,
           items,
@@ -695,9 +697,15 @@ export default function OrderManagement() {
       });
 
       const [orderData, paymentsData, histData] = await Promise.all([
-        apiFetch(`/api/marudham/orders/${selectedOrder.id}`),
-        apiFetch(`/api/marudham/orders/${selectedOrder.id}/payments`).catch(() => ({ payments: [] })),
-        apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`).catch(() => ({ history: [] }))
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}`, {
+          signal: AbortSignal.timeout(outOfDateRequestTimeoutMs)
+        }),
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}/payments`, {
+          signal: AbortSignal.timeout(outOfDateRequestTimeoutMs)
+        }).catch(() => ({ payments: [] })),
+        apiFetch(`/api/marudham/orders/${selectedOrder.id}/out-of-date`, {
+          signal: AbortSignal.timeout(outOfDateRequestTimeoutMs)
+        }).catch(() => ({ history: [] }))
       ]);
       const order = orderData.order as OrderDetails;
       setSelectedOrder(order);

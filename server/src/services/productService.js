@@ -31,7 +31,9 @@ async function logProductAction({ product_id, user_id, action, details, client }
   );
 }
 
-async function logOrderAction({ order_id, sales_rep_id, action, details }) {
+async function logOrderAction({ order_id, sales_rep_id, action, details, client }) {
+  const executor = client || pool;
+
   // If this is a create action, fetch product names for the items
   if (action === 'create' && details && details.items) {
     try {
@@ -42,7 +44,7 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
       //console.log('Product IDs to fetch:', productIds);
       
       // Fetch product names
-      const productNamesQuery = await pool.query(
+      const productNamesQuery = await executor.query(
         'SELECT id, name FROM products WHERE id = ANY($1)',
         [productIds]
       );
@@ -70,7 +72,7 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
   if (action === 'return' && details && details.returned_items) {
     try {
       const productIds = details.returned_items.map(item => item.product_id);
-      const productNamesQuery = await pool.query(
+      const productNamesQuery = await executor.query(
         'SELECT id, name FROM products WHERE id = ANY($1)',
         [productIds]
       );
@@ -87,7 +89,7 @@ async function logOrderAction({ order_id, sales_rep_id, action, details }) {
     }
   }
   
-  await pool.query(
+  await executor.query(
     'INSERT INTO order_logs (order_id, sales_rep_id, action, details, created_at) VALUES ($1, $2, $3, $4, NOW())',
     [order_id, sales_rep_id, action, details ? JSON.stringify(details) : null]
   );
@@ -1599,48 +1601,51 @@ async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount
   if (normalizedItems.length === 0 && !order.is_legacy) {
     throw new Error('Out-of-date items are required');
   }
+  const isLegacyCreditOnly = order.is_legacy && normalizedItems.length === 0;
 
-  // Load order items to validate quantities and prices
-  const orderItemsRes = await pool.query(
-    'SELECT product_id, quantity, unit_price FROM order_items WHERE order_id = $1',
-    [order_id]
-  );
   const orderItemMap = new Map();
-  for (const row of orderItemsRes.rows) {
-    const productId = row.product_id;
-    const unitPrice = Number(row.unit_price);
-    const key = `${productId}:${unitPrice}`;
-    const existing = orderItemMap.get(key) || { quantity: 0, unit_price: unitPrice };
-    orderItemMap.set(key, { quantity: existing.quantity + Number(row.quantity), unit_price: unitPrice });
-  }
+  if (!isLegacyCreditOnly) {
+    // Load order items to validate quantities and prices
+    const orderItemsRes = await pool.query(
+      'SELECT product_id, quantity, unit_price FROM order_items WHERE order_id = $1',
+      [order_id]
+    );
+    for (const row of orderItemsRes.rows) {
+      const productId = row.product_id;
+      const unitPrice = Number(row.unit_price);
+      const key = `${productId}:${unitPrice}`;
+      const existing = orderItemMap.get(key) || { quantity: 0, unit_price: unitPrice };
+      orderItemMap.set(key, { quantity: existing.quantity + Number(row.quantity), unit_price: unitPrice });
+    }
 
-  // Load already out-of-date qty per product
-  const alreadyRes = await pool.query(`
-    SELECT odi.product_id, odi.unit_price, COALESCE(SUM(odi.qty), 0) as qty
-    FROM out_of_date_items odi
-    JOIN out_of_date od ON od.id = odi.out_of_date_id
-    WHERE od.order_id = $1
-    GROUP BY odi.product_id, odi.unit_price
-  `, [order_id]);
-  const alreadyMap = new Map(alreadyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.qty)]));
+    // Load already out-of-date qty per product
+    const alreadyRes = await pool.query(`
+      SELECT odi.product_id, odi.unit_price, COALESCE(SUM(odi.qty), 0) as qty
+      FROM out_of_date_items odi
+      JOIN out_of_date od ON od.id = odi.out_of_date_id
+      WHERE od.order_id = $1
+      GROUP BY odi.product_id, odi.unit_price
+    `, [order_id]);
+    const alreadyMap = new Map(alreadyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.qty)]));
 
-  const returnedRes = await pool.query(`
-    SELECT ri.product_id, ri.unit_credit, COALESCE(SUM(ri.quantity), 0) AS qty
-    FROM return_items ri
-    JOIN returns r ON r.id = ri.return_id
-    WHERE r.order_id = $1 AND r.status = 'confirmed'
-    GROUP BY ri.product_id, ri.unit_credit
-  `, [order_id]);
-  const returnedMap = new Map(returnedRes.rows.map(r => [`${r.product_id}:${Number(r.unit_credit)}`, Number(r.qty)]));
+    const returnedRes = await pool.query(`
+      SELECT ri.product_id, ri.unit_credit, COALESCE(SUM(ri.quantity), 0) AS qty
+      FROM return_items ri
+      JOIN returns r ON r.id = ri.return_id
+      WHERE r.order_id = $1 AND r.status = 'confirmed'
+      GROUP BY ri.product_id, ri.unit_credit
+    `, [order_id]);
+    const returnedMap = new Map(returnedRes.rows.map(r => [`${r.product_id}:${Number(r.unit_credit)}`, Number(r.qty)]));
 
-  for (const item of normalizedItems) {
-    const key = `${item.product_id}:${item.unit_price}`;
-    const orderItem = orderItemMap.get(key);
-    if (!orderItem) throw new Error('Invalid product/price line for this order');
-    const alreadyQty = alreadyMap.get(key) || 0;
-    const returnedQty = returnedMap.get(key) || 0;
-    const remaining = orderItem.quantity - alreadyQty - returnedQty;
-    if (item.qty > remaining) throw new Error('Out-of-date qty exceeds remaining order qty');
+    for (const item of normalizedItems) {
+      const key = `${item.product_id}:${item.unit_price}`;
+      const orderItem = orderItemMap.get(key);
+      if (!orderItem) throw new Error('Invalid product/price line for this order');
+      const alreadyQty = alreadyMap.get(key) || 0;
+      const returnedQty = returnedMap.get(key) || 0;
+      const remaining = orderItem.quantity - alreadyQty - returnedQty;
+      if (item.qty > remaining) throw new Error('Out-of-date qty exceeds remaining order qty');
+    }
   }
 
   const outOfDateId = randomUUID();
@@ -1650,30 +1655,32 @@ async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount
 
     // Serialize out-of-date credits with product returns for the same invoice.
     await client.query('SELECT id FROM orders WHERE id = $1 FOR UPDATE', [order_id]);
-    const creditedQtyRes = await client.query(`
-      SELECT product_id, unit_price, SUM(qty) AS qty
-      FROM (
-        SELECT odi.product_id, odi.unit_price::numeric AS unit_price, odi.qty
-        FROM out_of_date_items odi
-        JOIN out_of_date od ON od.id = odi.out_of_date_id
-        WHERE od.order_id = $1
-        UNION ALL
-        SELECT ri.product_id, ri.unit_credit::numeric AS unit_price, ri.quantity AS qty
-        FROM return_items ri
-        JOIN returns r ON r.id = ri.return_id
-        WHERE r.order_id = $1 AND r.status = 'confirmed'
-      ) credited
-      GROUP BY product_id, unit_price
-    `, [order_id]);
-    const creditedQtyMap = new Map(creditedQtyRes.rows.map(row => [
-      `${row.product_id}:${Number(row.unit_price)}`,
-      Number(row.qty),
-    ]));
-    for (const item of normalizedItems) {
-      const key = `${item.product_id}:${item.unit_price}`;
-      const orderItem = orderItemMap.get(key);
-      if (item.qty > orderItem.quantity - (creditedQtyMap.get(key) || 0)) {
-        throw new Error('Out-of-date qty exceeds remaining order qty');
+    if (!isLegacyCreditOnly) {
+      const creditedQtyRes = await client.query(`
+        SELECT product_id, unit_price, SUM(qty) AS qty
+        FROM (
+          SELECT odi.product_id, odi.unit_price::numeric AS unit_price, odi.qty
+          FROM out_of_date_items odi
+          JOIN out_of_date od ON od.id = odi.out_of_date_id
+          WHERE od.order_id = $1
+          UNION ALL
+          SELECT ri.product_id, ri.unit_credit::numeric AS unit_price, ri.quantity AS qty
+          FROM return_items ri
+          JOIN returns r ON r.id = ri.return_id
+          WHERE r.order_id = $1 AND r.status = 'confirmed'
+        ) credited
+        GROUP BY product_id, unit_price
+      `, [order_id]);
+      const creditedQtyMap = new Map(creditedQtyRes.rows.map(row => [
+        `${row.product_id}:${Number(row.unit_price)}`,
+        Number(row.qty),
+      ]));
+      for (const item of normalizedItems) {
+        const key = `${item.product_id}:${item.unit_price}`;
+        const orderItem = orderItemMap.get(key);
+        if (item.qty > orderItem.quantity - (creditedQtyMap.get(key) || 0)) {
+          throw new Error('Out-of-date qty exceeds remaining order qty');
+        }
       }
     }
 
@@ -1699,6 +1706,7 @@ async function createOutOfDate({ order_id, admin_id, notes, items, credit_amount
       order_id,
       sales_rep_id: null,
       action: 'out_of_date',
+      client,
       details: {
         admin_id,
         notes: notes || null,
@@ -2372,8 +2380,9 @@ async function getOrderDetails(order_id) {
     LEFT JOIN products p ON oi.product_id = p.id
     WHERE oi.order_id = $1
   `, [order_id]);
+  const isLegacyWithoutItems = Boolean(order.is_legacy) && itemsRes.rows.length === 0;
 
-  const outOfDateQtyRes = await pool.query(`
+  const outOfDateQtyRes = isLegacyWithoutItems ? { rows: [] } : await pool.query(`
     SELECT odi.product_id, odi.unit_price, COALESCE(SUM(odi.qty), 0) as out_of_date_qty
     FROM out_of_date_items odi
     JOIN out_of_date od ON od.id = odi.out_of_date_id
@@ -2382,7 +2391,7 @@ async function getOrderDetails(order_id) {
   `, [order_id]);
   const outOfDateQtyMap = new Map(outOfDateQtyRes.rows.map(r => [`${r.product_id}:${Number(r.unit_price)}`, Number(r.out_of_date_qty)]));
 
-  const returnedQtyRes = await pool.query(`
+  const returnedQtyRes = isLegacyWithoutItems ? { rows: [] } : await pool.query(`
     SELECT ri.order_item_id, COALESCE(SUM(ri.quantity), 0) AS returned_qty
     FROM return_items ri
     JOIN returns r ON r.id = ri.return_id
@@ -2391,7 +2400,15 @@ async function getOrderDetails(order_id) {
   `, [order_id]);
   const returnedQtyMap = new Map(returnedQtyRes.rows.map(r => [r.order_item_id, Number(r.returned_qty)]));
 
-  const returnsRes = await pool.query(`
+  const returnsRes = isLegacyWithoutItems ? await pool.query(`
+    SELECT r.id, r.status, r.notes, r.total_credit, r.created_at,
+      cn.id AS credit_note_id, cn.amount AS credit_note_amount,
+      '[]'::json AS items
+    FROM returns r
+    LEFT JOIN credit_notes cn ON cn.return_id = r.id
+    WHERE r.order_id = $1
+    ORDER BY r.created_at DESC
+  `, [order_id]) : await pool.query(`
     SELECT r.id, r.status, r.notes, r.total_credit, r.created_at,
       cn.id AS credit_note_id, cn.amount AS credit_note_amount,
       COALESCE(json_agg(json_build_object(
@@ -2420,7 +2437,7 @@ async function getOrderDetails(order_id) {
     ORDER BY ccr.created_at DESC
   `, [order_id]);
   
-  const outOfDateValueRes = await pool.query(`
+  const outOfDateValueRes = isLegacyWithoutItems ? { rows: [{ out_of_date_value: 0 }] } : await pool.query(`
     SELECT COALESCE(SUM(odi.line_total::numeric), 0) as out_of_date_value
     FROM out_of_date_items odi
     JOIN out_of_date od ON od.id = odi.out_of_date_id
@@ -3344,6 +3361,52 @@ async function updateCollectionAsAdmin({ payment_id, admin_id, amount, notes, pa
   }
 }
 
+async function deleteCollectionAsAdmin({ payment_id, admin_id }) {
+  if (!payment_id) throw new Error('Collection ID is required');
+  if (!admin_id) throw new Error('Admin not found');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const paymentRes = await client.query(`
+      SELECT p.id, p.order_id, p.sales_rep_id, p.amount, p.notes, p.created_at,
+             o.total AS order_total
+      FROM payments p
+      JOIN orders o ON o.id = p.order_id
+      WHERE p.id = $1
+      FOR UPDATE OF p, o
+    `, [payment_id]);
+
+    if (paymentRes.rows.length === 0) {
+      const error = new Error('Collection not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const payment = paymentRes.rows[0];
+
+    await client.query('DELETE FROM payment_logs WHERE payment_id = $1', [payment_id]);
+    const deletedRes = await client.query('DELETE FROM payments WHERE id = $1 RETURNING id', [payment_id]);
+
+    await client.query('COMMIT');
+    return {
+      payment_id: deletedRes.rows[0].id,
+      order_id: payment.order_id,
+      sales_rep_id: payment.sales_rep_id,
+      amount: Number(payment.amount),
+      notes: payment.notes,
+      payment_date: payment.created_at,
+      order_total: Number(payment.order_total),
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports.getRepresentativeCollections = getRepresentativeCollections;
 module.exports.getRepresentativeCollectionStats = getRepresentativeCollectionStats;
 module.exports.getShopDetails = getShopDetails;
@@ -3354,6 +3417,7 @@ module.exports.listPurchaseLogs = listPurchaseLogs;
 module.exports.getAdminCollections = getAdminCollections;
 module.exports.setCollectionReviewed = setCollectionReviewed;
 module.exports.updateCollectionAsAdmin = updateCollectionAsAdmin;
+module.exports.deleteCollectionAsAdmin = deleteCollectionAsAdmin;
 module.exports.recordPaymentAsAdmin = recordPaymentAsAdmin;
 module.exports.createOutOfDate = createOutOfDate;
 module.exports.getOrderOutOfDateHistory = getOrderOutOfDateHistory;
