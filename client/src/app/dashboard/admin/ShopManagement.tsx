@@ -88,6 +88,7 @@ export default function ShopManagement() {
   const firstInputRef = useRef<HTMLInputElement>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDownloadingOutstanding, setIsDownloadingOutstanding] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -274,6 +275,31 @@ export default function ShopManagement() {
       URL.revokeObjectURL(url);
     } catch (err: any) {
       setError(err.message || 'Failed to download PDF');
+    }
+  }
+
+  async function downloadRepwiseOutstanding() {
+    setIsDownloadingOutstanding(true);
+    try {
+      const blob = await apiFetchBlob('/api/marudham/reports/repwise-outstanding.xlsx', {
+        method: 'GET',
+        headers: { Accept: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      });
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const today = new Date().toISOString().slice(0, 10);
+      a.download = `repwise_outstanding_bills_${today}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('success', 'Outstanding report downloaded');
+    } catch (err: any) {
+      showToast('error', err.message || 'Failed to download outstanding report');
+    } finally {
+      setIsDownloadingOutstanding(false);
     }
   }
 
@@ -503,7 +529,25 @@ export default function ShopManagement() {
               onChange={e => { setSearch(e.target.value); setPage(1); }}
             />
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm"
+              onClick={downloadRepwiseOutstanding}
+              disabled={isDownloadingOutstanding}
+              title="Download all outstanding bills with one worksheet per representative"
+            >
+              {isDownloadingOutstanding ? (
+                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              )}
+              {isDownloadingOutstanding ? 'Preparing...' : 'Outstanding Excel'}
+            </button>
             <button
               className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 rounded-lg text-sm font-semibold transition-colors"
               onClick={exportCSV}

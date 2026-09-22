@@ -133,6 +133,7 @@ router.get('/sales-representatives/stats', authenticateJWT, requireAdminOrSupera
 
 // Reports (Admin/Superadmin only)
 router.get('/reports/repwise-shop-limits.pdf', authenticateJWT, requireAdminOrSuperadmin, reportController.downloadRepwiseShopLimitsPdf);
+router.get('/reports/repwise-outstanding.xlsx', authenticateJWT, requireAdminOrSuperadmin, reportController.downloadRepwiseOutstandingXlsx);
 
 // Admin collections (Admin/Superadmin only)
 router.get('/collections/admin', authenticateJWT, requireAdminOrSuperadmin, productController.getAdminCollections);

@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const reportService = require('../services/reportService');
+const { createWorkbook } = require('../utils/xlsx');
 
 const moneyFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
@@ -170,5 +171,125 @@ exports.downloadRepwiseShopLimitsPdf = async (req, res) => {
   } catch (error) {
     console.error('downloadRepwiseShopLimitsPdf error:', error);
     res.status(500).json({ error: error.message || 'Failed to generate PDF' });
+  }
+};
+
+function safeSheetName(name, usedNames) {
+  const base = String(name || 'Representative')
+    .replace(/[\\/?*:[\]\x00-\x1f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^'+|'+$/g, '') || 'Representative';
+  let candidate = base.slice(0, 31);
+  let suffix = 2;
+  while (usedNames.has(candidate.toLowerCase())) {
+    const marker = ` (${suffix})`;
+    candidate = `${base.slice(0, 31 - marker.length)}${marker}`;
+    suffix += 1;
+  }
+  usedNames.add(candidate.toLowerCase());
+  return candidate;
+}
+
+function dateOnly(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Colombo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const part = type => parts.find(item => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+exports.downloadRepwiseOutstandingXlsx = async (req, res) => {
+  try {
+    const reps = await reportService.getRepwiseOutstandingBills();
+    const generatedAt = new Date();
+    const usedNames = new Set();
+    const sheets = reps.map(rep => {
+      const repTotals = rep.shops.flatMap(shop => shop.bills).reduce((totals, bill) => ({
+        total: totals.total + bill.total,
+        paid: totals.paid + bill.paid,
+        outstanding: totals.outstanding + bill.outstanding,
+      }), { total: 0, paid: 0, outstanding: 0 });
+      const rows = [
+        { cells: ['Outstanding Bills Report'], style: 1, height: 26 },
+        { cells: [`Representative: ${rep.rep_name}`], style: 2 },
+        { cells: [`Email: ${rep.rep_email || '-'}`], style: 2 },
+        { cells: [`Total outstanding: ${moneyFormatter.format(repTotals.outstanding)} LKR`], style: 2 },
+        { cells: [`Generated: ${generatedAt.toLocaleString('en-GB')}`], style: 2 },
+        { cells: [] },
+      ];
+      const merges = ['A1:E1', 'A2:E2', 'A3:E3', 'A4:E4', 'A5:E5'];
+
+      for (const shop of rep.shops) {
+        const shopHeaderRow = rows.length + 1;
+        rows.push({ cells: [`Shop: ${shop.shop_name}`], style: 3 });
+        merges.push(`A${shopHeaderRow}:E${shopHeaderRow}`);
+        rows.push({ cells: ['Bill Date', 'Bill No.', 'Total (LKR)', 'Paid (LKR)', 'Outstanding (LKR)'], style: 4 });
+
+        for (const bill of shop.bills) {
+          rows.push({ cells: [
+            { value: dateOnly(bill.bill_date), style: 5 },
+            { value: bill.invoice_number, style: 5 },
+            { value: bill.total, style: 6 },
+            { value: bill.paid, style: 6 },
+            { value: bill.outstanding, style: 6 },
+          ] });
+        }
+
+        rows.push({ cells: [
+          { value: 'Shop Total', style: 3 },
+          { value: '', style: 3 },
+          { value: shop.bills.reduce((sum, bill) => sum + bill.total, 0), style: 7 },
+          { value: shop.bills.reduce((sum, bill) => sum + bill.paid, 0), style: 7 },
+          { value: shop.bills.reduce((sum, bill) => sum + bill.outstanding, 0), style: 7 },
+        ] });
+        rows.push({ cells: [] });
+      }
+
+      rows.push({ cells: [
+        { value: 'Representative Total', style: 3 },
+        { value: '', style: 3 },
+        { value: repTotals.total, style: 7 },
+        { value: repTotals.paid, style: 7 },
+        { value: repTotals.outstanding, style: 7 },
+      ] });
+
+      return {
+        name: safeSheetName(rep.rep_name, usedNames),
+        rows,
+        merges,
+        widths: [16, 38, 18, 18, 22],
+        freezeRows: 6,
+      };
+    });
+
+    if (sheets.length === 0) {
+      sheets.push({
+        name: 'Outstanding',
+        rows: [
+          { cells: ['Outstanding Bills Report'], style: 1, height: 26 },
+          { cells: ['There are no outstanding bills.'], style: 2 },
+        ],
+        merges: ['A1:E1', 'A2:E2'],
+        widths: [16, 38, 18, 18, 22],
+      });
+    }
+
+    const workbook = createWorkbook(sheets);
+    const date = generatedAt.toISOString().slice(0, 10);
+    const filename = `repwise_outstanding_bills_${date}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', workbook.length);
+    res.send(workbook);
+  } catch (error) {
+    console.error('downloadRepwiseOutstandingXlsx error:', error);
+    res.status(500).json({ error: error.message || 'Failed to generate Excel report' });
   }
 };
