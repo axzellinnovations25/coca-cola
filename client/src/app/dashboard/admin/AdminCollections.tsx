@@ -28,6 +28,7 @@ interface Collection {
     email: string | null;
   } | null;
   order_id: string;
+  invoice_number: string | null;
   order_total: number;
   shop: Shop;
   sales_rep: {
@@ -122,6 +123,7 @@ export default function AdminCollections() {
       if (!q.trim()) return true;
       return c.shop.name.toLowerCase().includes(q) ||
         `${c.sales_rep.first_name} ${c.sales_rep.last_name}`.toLowerCase().includes(q) ||
+        (c.invoice_number || '').toLowerCase().includes(q) ||
         c.order_id.toLowerCase().includes(q) ||
         (c.payment_notes || '').toLowerCase().includes(q);
     });
@@ -337,7 +339,7 @@ export default function AdminCollections() {
           </div>
           <div className="flex-1 min-w-[180px]">
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Search</label>
-            <input type="text" placeholder="Shop, rep, order ID…" value={search} onChange={e => setSearch(e.target.value)}
+            <input type="text" placeholder="Shop, rep, invoice no…" value={search} onChange={e => setSearch(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-300" />
           </div>
           <div className="flex-1 min-w-[150px]">
@@ -477,7 +479,7 @@ export default function AdminCollections() {
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Date</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Rep</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Shop</th>
-                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Order</th>
+                  <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Invoice No.</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Order Total</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-right">Collected</th>
                   <th className="py-3 px-5 text-xs font-semibold uppercase tracking-wide text-gray-500 text-left">Admin Review</th>
@@ -502,8 +504,8 @@ export default function AdminCollections() {
                         <p className="text-xs text-gray-400 truncate max-w-[160px]">{c.shop.address}</p>
                       )}
                     </td>
-                    <td className="py-3.5 px-5 text-sm text-gray-500 font-mono">
-                      #{c.order_id.slice(0, 8)}
+                    <td className="py-3.5 px-5 text-sm font-semibold text-gray-900">
+                      {c.invoice_number || '—'}
                     </td>
                     <td className="py-3.5 px-5 text-sm text-gray-700 text-right font-medium">
                       {c.order_total.toFixed(2)}

@@ -3170,6 +3170,11 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
       p.reviewed_at,
       p.reviewed_by,
       o.id            AS order_id,
+      CASE
+        WHEN o.request_fingerprint LIKE 'legacy:%'
+          THEN NULLIF(SUBSTRING(o.request_fingerprint FROM 8), '')
+        ELSE NULL
+      END             AS invoice_number,
       o.total         AS order_total,
       s.id            AS shop_id,
       s.name          AS shop_name,
@@ -3205,6 +3210,7 @@ async function getAdminCollections({ start_date, end_date, sales_rep_id, shop_id
       email: row.reviewer_email,
     } : null,
     order_id:       row.order_id,
+    invoice_number: row.invoice_number || null,
     order_total:    Number(row.order_total),
     shop: {
       id:      row.shop_id,
