@@ -1676,7 +1676,7 @@ export default function OrderManagement() {
                           onChange={(e) => setCollectionAmount(e.target.value)}
                           inputMode="decimal"
                           placeholder={`Max ${Number(selectedOrder.outstanding || 0).toFixed(2)}`}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                          className="w-full px-3 py-2 text-sm text-gray-900 bg-white placeholder:text-gray-400 border border-gray-300 rounded-lg focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
                         />
                       </div>
                       <div className="md:col-span-2">
@@ -1685,7 +1685,7 @@ export default function OrderManagement() {
                           value={collectionNotes}
                           onChange={(e) => setCollectionNotes(e.target.value)}
                           placeholder="e.g. Cash received by admin"
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                          className="w-full px-3 py-2 text-sm text-gray-900 bg-white placeholder:text-gray-400 border border-gray-300 rounded-lg focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-500/30"
                         />
                       </div>
                     </div>

@@ -32,16 +32,16 @@ const ORDER_FINANCIALS_CTES = `
       COALESCE(odct.credit, 0) AS out_of_date_credit,
       COALESCE(rct.credit, 0) AS return_credit,
       COALESCE(odct.credit, 0) + COALESCE(rct.credit, 0) AS approved_credit,
-      GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0), 0) AS net_collectible,
-      GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0) - COALESCE(pt.collected, 0), 0) AS outstanding,
-      GREATEST(COALESCE(pt.collected, 0) - GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0), 0), 0) AS gross_customer_credit,
+      ROUND(GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0), 0), 2) AS net_collectible,
+      ROUND(GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0) - COALESCE(pt.collected, 0), 0), 2) AS outstanding,
+      ROUND(GREATEST(COALESCE(pt.collected, 0) - GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0), 0), 0), 2) AS gross_customer_credit,
       COALESCE(ccrt.resolved, 0) AS resolved_customer_credit,
-      GREATEST(
+      ROUND(GREATEST(
         COALESCE(pt.collected, 0)
           - GREATEST(o.total::numeric - COALESCE(odct.credit, 0) - COALESCE(rct.credit, 0), 0)
           - COALESCE(ccrt.resolved, 0),
         0
-      ) AS customer_credit
+      ), 2) AS customer_credit
     FROM orders o
     LEFT JOIN payment_totals pt ON pt.order_id = o.id
     LEFT JOIN out_of_date_credit_totals odct ON odct.order_id = o.id

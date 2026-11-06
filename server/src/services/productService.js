@@ -457,7 +457,10 @@ async function createOrder({ shop_id, sales_rep_id, notes, items, created_by_adm
   });
 
   const orderId = randomUUID();
-  const total = normalizedItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
+  const total = Math.round((
+    normalizedItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0)
+    + Number.EPSILON
+  ) * 100) / 100;
   const requestFingerprint = buildOrderFingerprint({
     shop_id,
     sales_rep_id,
@@ -560,7 +563,7 @@ async function createOrder({ shop_id, sales_rep_id, notes, items, created_by_adm
       product_id: item.product_id,
       unit_price: item.unit_price,
       quantity: item.quantity,
-      total: item.unit_price * item.quantity,
+      total: Math.round(((item.unit_price * item.quantity) + Number.EPSILON) * 100) / 100,
     }));
     await client.query(
       `INSERT INTO order_items (id, order_id, product_id, unit_price, quantity, total)
@@ -1488,7 +1491,10 @@ async function billsForRepresentative(sales_rep_id) {
 }
 
 async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
-  if (!amount || isNaN(amount) || Number(amount) <= 0) throw new Error('Invalid payment amount');
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) throw new Error('Invalid payment amount');
+  const paymentAmount = Math.round((numericAmount + Number.EPSILON) * 100) / 100;
+  if (paymentAmount <= 0) throw new Error('Invalid payment amount');
   
   // Get order and outstanding
   const orderRes = await pool.query(`
@@ -1506,13 +1512,13 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
   const outstanding = Number(financials?.outstanding || 0);
   if (outstanding <= 0) throw new Error('No outstanding balance to collect for this order');
   
-  if (Number(amount) > outstanding) throw new Error('Payment exceeds outstanding amount');
+  if (paymentAmount > outstanding) throw new Error('Payment exceeds outstanding amount');
   
   // Insert payment with explicit timestamp
   const paymentId = randomUUID();
   const paymentRes = await pool.query(
     'INSERT INTO payments (id, order_id, sales_rep_id, amount, notes, created_at) VALUES ($1, $2, $3, $4, $5, now()) RETURNING *',
-    [paymentId, order_id, sales_rep_id, amount, notes || null]
+    [paymentId, order_id, sales_rep_id, paymentAmount, notes || null]
   );
   const payment = paymentRes.rows[0];
   
@@ -1523,11 +1529,11 @@ async function recordPayment({ order_id, sales_rep_id, amount, notes }) {
     sales_rep_id,
     action: 'record',
     details: {
-      amount: Number(amount),
+      amount: paymentAmount,
       notes: notes || null,
       order_total: total,
       previous_collected: collected,
-      new_outstanding: outstanding - Number(amount)
+      new_outstanding: Math.max(outstanding - paymentAmount, 0)
     }
   });
 
