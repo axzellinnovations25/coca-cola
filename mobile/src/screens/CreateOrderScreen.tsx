@@ -120,35 +120,19 @@ interface BluetoothPrinterDevice {
 
 const formatCurrency = (value: number | string | null | undefined) =>
   Number(value || 0).toFixed(2);
-const DEFAULT_CASE_SIZE = 12;
+const roundCurrency = (value: number | string | null | undefined) =>
+  Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
 const createIdempotencyKey = () =>
   `return-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
-// Server is the source of truth (products.units_per_case); the name heuristic
-// below only covers servers that don't send the field yet.
 const getCaseSize = (product: { name?: string; units_per_case?: number } | null | undefined) => {
-  const fromServer = Number(product?.units_per_case);
-  if (Number.isInteger(fromServer) && fromServer >= 1) return fromServer;
-  const name = (product?.name || '').toLowerCase();
-  const compact = name.replace(/\s+/g, '');
-  if (name.includes('monster')) return 24;
-  if (name.includes('water')) {
-    if (compact.includes('1500ml') || compact.includes('1.5l')) return 12;
-    if (compact.includes('1000ml') || compact.includes('1l')) return 15;
-    if (compact.includes('500ml')) return 24;
-    return 24;
-  }
-  if (compact.includes('250ml') && name.includes('tin')) return 24;
-  if (compact.includes('250ml')) return 16;
-  if (compact.includes('175ml')) return 24;
-  if (compact.includes('300ml')) return 24;
-  if (compact.includes('1050ml')) return 12;
-  if (compact.includes('1.30l') || compact.includes('1.3l')) return 12;
-  if (compact.includes('750ml')) return 9;
-  if (compact.includes('1.25l') || compact.includes('1250ml')) return 12;
-  if (compact.includes('2.25l') || compact.includes('2250ml')) return 9;
-  if (compact.includes('2l') || compact.includes('2000ml')) return 9;
-  return DEFAULT_CASE_SIZE;
+  return Number(product?.units_per_case);
 };
+const hasValidCaseSize = (product: Product) => {
+  const caseSize = getCaseSize(product);
+  return Number.isInteger(caseSize) && caseSize >= 1;
+};
+const productsWithValidCaseSizes = (products: Product[] | undefined) =>
+  (products || []).filter(hasValidCaseSize);
 
 const getProductType = (product: Product) => {
   const value = `${product.name} ${product.description || ''} ${product.brand || ''}`.toLowerCase();
@@ -375,7 +359,7 @@ export default function CreateOrderScreen() {
   const cachedProducts = getCachedApiData<ProductsResponse>(PRODUCTS_PATH);
   const hasCompleteCache = Boolean(cachedShops && cachedProducts);
   const [shops, setShops] = useState<Shop[]>(() => cachedShops?.shops || []);
-  const [products, setProducts] = useState<Product[]>(() => cachedProducts?.products || []);
+  const [products, setProducts] = useState<Product[]>(() => productsWithValidCaseSizes(cachedProducts?.products));
   const [flowStep, setFlowStep] = useState<FlowStep>('shops');
   const flowHistory = useRef<FlowStep[]>([]);
   const [selectedShop, setSelectedShop] = useState<Shop | null>(null);
@@ -453,7 +437,7 @@ export default function CreateOrderScreen() {
     try {
       if (cachedShopData && cachedProductData) {
         setShops(cachedShopData.shops || []);
-        setProducts(cachedProductData.products || []);
+        setProducts(productsWithValidCaseSizes(cachedProductData.products));
         hasLoadedData.current = true;
         setLoading(false);
       } else if (!silent) {
@@ -488,7 +472,15 @@ export default function CreateOrderScreen() {
         };
       });
       setShops(normalizedShops);
-      setProducts(productData.products || []);
+      const receivedProducts = productData.products || [];
+      const invalidCaseSizeProducts = receivedProducts.filter((product) => !hasValidCaseSize(product));
+      setProducts(productsWithValidCaseSizes(receivedProducts));
+      if (invalidCaseSizeProducts.length > 0) {
+        setError(
+          `${invalidCaseSizeProducts.length} product${invalidCaseSizeProducts.length === 1 ? '' : 's'} `
+          + 'cannot be ordered because Units per Case is missing or invalid. Ask an admin to update the product.',
+        );
+      }
       setSelectedShop((current) =>
         current ? normalizedShops.find((shop) => shop.id === current.id) || current : null,
       );
@@ -949,8 +941,10 @@ export default function CreateOrderScreen() {
 
   const submitCollection = async () => {
     if (!selectedBill) return;
-    const amount = Number(collectionAmount);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > Number(selectedBill.outstanding)) {
+    const rawAmount = Number(collectionAmount);
+    const amount = roundCurrency(rawAmount);
+    const outstanding = roundCurrency(selectedBill.outstanding);
+    if (!Number.isFinite(rawAmount) || amount <= 0 || amount > outstanding) {
       Alert.alert('Invalid Amount', `Enter an amount between 0 and ${formatCurrency(selectedBill.outstanding)} LKR.`);
       return;
     }
@@ -2277,7 +2271,7 @@ export default function CreateOrderScreen() {
               activeOpacity={0.7}
             >
               <Text style={[styles.unitToggleText, orderByCase && styles.unitToggleTextActive]}>
-                Cases (1 = {selectedProduct ? getCaseSize(selectedProduct) : DEFAULT_CASE_SIZE})
+                Cases (1 = {selectedProduct ? getCaseSize(selectedProduct) : '—'})
               </Text>
             </TouchableOpacity>
           </View>
